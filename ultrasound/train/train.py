@@ -29,10 +29,11 @@ class Trainer:
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size,
-            num_workers=4,
-            prefetch_factor=4,
+            num_workers=6,
+            prefetch_factor=8,
             drop_last = True,
-            shuffle=True)
+            shuffle=True,
+            multiprocessing_context="fork")
         
         self.val_loader = DataLoader(
             self.val_dataset,
@@ -40,7 +41,8 @@ class Trainer:
             num_workers=4,
             prefetch_factor=4,
             drop_last = False,
-            shuffle=True)
+            shuffle=True,
+            multiprocessing_context="fork")
 
         self.train_dict = {
             "train_loss": [],
@@ -147,9 +149,9 @@ class Trainer:
                     
 
             self.train_dict["train_loss"].append(train_loss/train_exs)
-            if i %  save_iter == 0: 
-                self.save()
-                print("Saved model.")
+            # if i %  save_iter == 0: 
+            self.save()
+            print("Saved model.")
 
 
 # torch.multiprocessing.set_start_method("spawn")
