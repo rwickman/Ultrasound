@@ -1,36 +1,29 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
+
 from torch.utils.data import DataLoader
 import scipy.io as io
-import os
-import json
+import json, os, time
 
-# TODO: REMOVE THIS
-import matplotlib.pyplot as plt
+from collections import deque
+import numpy as np
 
 from model import DensityModel
 from config import *
 from dataset import create_datasets
+from discriminator import Discriminator, discriminator_loss
 
 class Trainer:
     def __init__(self):
-        # self.train_inp = io.loadmat("/media/data/datasets/Ultrasound/experiment_01/OutputRepacked/FSA_Layer03.mat")["FSA"]
-        # self.train_inp = (self.train_inp - self.train_inp.min()) / (self.train_inp.max() - self.train_inp.min())
-        # self.train_inp = torch.tensor(self.train_inp, device=device).unsqueeze(0).float()
-
-        # self.train_out = io.loadmat("/media/data/datasets/Ultrasound/experiment_01/SOSMapAbOnly.mat")["SOSMap"]
-        # self.train_out = (self.train_out - self.train_out.min()) / (self.train_out.max() - self.train_out.min())
-        # self.train_out = torch.tensor(self.train_out, device=device).permute((2, 0, 1)).float()
-        # print("self.train_out.shape", self.train_out.shape)
-        
         self.train_dataset, self.val_dataset, self.test_dataest = create_datasets()
         
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size,
-            num_workers=6,
-            prefetch_factor=8,
+            num_workers=4,
+            prefetch_factor=4,
             drop_last = True,
             shuffle=True,
             multiprocessing_context="fork")
@@ -46,12 +39,18 @@ class Trainer:
 
         self.train_dict = {
             "train_loss": [],
-            "val_loss": []
+            "val_loss": [],
+            "adv_loss": [],
+            "disc_loss": []
         }
 
         self.model = DensityModel().to(device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
-        self.loss_fn = nn.SmoothL1Loss()
+        self.loss_fn = nn.MSELoss()
+
+        if use_adversarial_loss:
+            self.disc = Discriminator().to(device)
+            self.disc_optimizer = optim.AdamW(self.disc.parameters(), lr=disc_lr)
 
         if load:
             self.load()
@@ -65,10 +64,15 @@ class Trainer:
     def save(self):
         model_dict = {
             "model": self.model.state_dict(),
-            "optimizer": self.optimizer.state_dict()
+            "optimizer": self.optimizer.state_dict(),
         }
 
-        torch.save(model_dict, os.path.join(save_dir, f"model_{len(self.train_dict['train_loss'])}.pt"))
+        if use_adversarial_loss:
+            model_dict["disc"] = self.disc.state_dict()
+            model_dict["disc_optimizer"] = self.disc_optimizer.state_dict()
+
+        if len(self.train_dict['train_loss']) % save_iter == 0:
+            torch.save(model_dict, os.path.join(save_dir, f"model_{len(self.train_dict['train_loss'])}.pt"))
         torch.save(model_dict, os.path.join(save_dir, "model.pt"))
 
         with open(os.path.join(save_dir, "train_dict.json"), "w") as f:
@@ -83,8 +87,21 @@ class Trainer:
         self.optimizer.load_state_dict(model_dict["optimizer"])
         self.optimizer.param_groups[0]["lr"] = lr
 
+        
+        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
+
+
+        
+        if use_adversarial_loss and "disc" in model_dict:
+            self.disc.load_state_dict(model_dict["disc"])
+            self.disc_optimizer.load_state_dict(model_dict["disc_optimizer"])
+            self.disc_optimizer.param_groups[0]["lr"] = disc_lr
+
+
         with open(os.path.join(save_dir, "train_dict.json")) as f:
-            self.train_dict = json.load(f)
+            train_dict_saved = json.load(f)
+            for k, v in train_dict_saved.items():
+                self.train_dict[k] = v
         
         print("self.train_dict", self.train_dict)
 
@@ -104,34 +121,101 @@ class Trainer:
         return val_loss
 
     
+    def train_step(self, SOS_pred, SOS_true, cur_step):
+        recon_loss = self.loss_fn(SOS_pred, SOS_true)
+        disc_loss = torch.zeros(1)
+        adv_loss = torch.zeros(1)
+        if use_adversarial_loss:
+            SOS_pred = SOS_pred.unsqueeze(1)
+            SOS_true = SOS_true.unsqueeze(1)
+
+            disc_true_pred = self.disc(SOS_true)
+            disc_fake_pred = self.disc(SOS_pred.detach())
+
+            true_loss = discriminator_loss(disc_true_pred, torch.ones(SOS_pred.shape[0], dtype=torch.float32, device=device) - 0.2)
+            fake_loss = discriminator_loss(disc_fake_pred, torch.zeros(SOS_pred.shape[0], dtype=torch.float32, device=device))
+            
+            
+            disc_loss = true_loss + fake_loss
+            if cur_step % 4 == 0:
+                self.disc_optimizer.zero_grad()
+                disc_loss.backward()
+                self.disc_optimizer.step()
+        
+            disc_fake_pred = self.disc(SOS_pred)
+            adv_loss = discriminator_loss(disc_fake_pred, torch.ones(SOS_pred.shape[0], dtype=torch.float32, device=device) - 0.2) 
+            loss = recon_lam * recon_loss + disc_lam * adv_loss
+            # Train the model
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            
+        else:
+            loss = recon_lam * recon_loss
+            # Train the model
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+        print("recon_loss", recon_loss.item(), "adv_loss", adv_loss.item(), "disc_loss", disc_loss.item())
+
+        
+        
+        return recon_loss, adv_loss, disc_loss
+
+        
+
     def train(self):
         
         for i in range(epochs):
             train_loss = 0
+            adv_loss_sum = 0
+            disc_loss_sum = 0
             train_exs = 0
+            start_time = time.time()
+            prev_batches = deque([])
             for batch in self.train_loader:
-                SOS_true, FSA = batch
-                SOS_true = SOS_true.to(device)
-                FSA = FSA.to(device)
+                cur_step = 0
+                rand_idxs = np.random.permutation(len(prev_batches) + 1)
+                for i in rand_idxs:
+                    if i >= 1 and len(prev_batches) > i-1:
+                        SOS_true, FSA = prev_batches[i-1]
+                    else:
+                        SOS_true, FSA = batch
+
+                    SOS_true = SOS_true.to(device)
+                    FSA = FSA.to(device)
+
+                    # Get model prediction
+                    SOS_pred = self.model(FSA)
+
+                    # Update the model
+                    loss, adv_loss, disc_loss = self.train_step(SOS_pred, SOS_true, cur_step)
+                    
+
+                    if train_exs % 1024 == 0:
+                        print("\nsig_at.enc.layers[0].linear2", self.model.sig_att.enc.layers[0].linear2.weight.grad.min(), self.model.sig_att.enc.layers[0].linear2.weight.grad.max(), self.model.sig_att.enc.layers[0].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[0].linear2.weight.grad.std())
+                        print("sig_at.enc.layers[2].linear2", self.model.sig_att.enc.layers[2].linear2.weight.grad.min(), self.model.sig_att.enc.layers[2].linear2.weight.grad.max(), self.model.sig_att.enc.layers[2].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[2].linear2.weight.grad.std())                
+                        print("sig_reduce.conv_out", self.model.sig_reduce.time_convs[0].weight.grad.min(), self.model.sig_reduce.time_convs[0].weight.grad.max())
+                        print("sig_reduce.fn_out", self.model.sig_reduce.fn_out.weight.grad.min(), self.model.sig_reduce.fn_out.weight.grad.max())
+                        print("sig_dec.conv_out", self.model.sig_dec.conv_out.weight.grad.min(), self.model.sig_dec.conv_out.weight.grad.max())
 
 
-                # Get model prediction
-                SOS_pred = self.model(FSA)
+                    train_loss += loss.item() * FSA.shape[0]
+                    adv_loss_sum += adv_loss.item() * FSA.shape[0]
+                    disc_loss_sum += disc_loss.item() * FSA.shape[0]
+                    train_exs += FSA.shape[0]
+                    cur_step += 1
 
-                
-                # Compute loss
-                loss = self.loss_fn(SOS_pred, SOS_true)
-                total_loss = loss*1000
-                
-                
-                # Train the model
-                self.optimizer.zero_grad()
-                total_loss.backward()
-                self.optimizer.step()
+                if len(prev_batches) < batch_buffer_size:
+                    prev_batches.append(batch)
+                else:
+                    prev_batches.popleft()
+                    prev_batches.append(batch)
+                    
 
-                print("LOSS:", loss.item())
-                train_loss += loss.item() * FSA.shape[0]
-                train_exs += FSA.shape[0]
+                if train_exs > 128:
+                    break 
+
 
             print("SOS_pred.min()", SOS_pred.min(), SOS_pred.max())
             print("SOS_true.min()", SOS_true.min(), SOS_true.max())
@@ -142,13 +226,20 @@ class Trainer:
                 
             #     axs[1].imshow(SOS_pred[0].detach().cpu())
             #     plt.show()
-
-            val_loss = self.validate()
-             
-            self.train_dict["val_loss"].append(val_loss)            
-                    
-
+            print("TRAIN TIME", time.time() - start_time)
+            
+            if len(self.train_dict["train_loss"]) % save_iter == 0:
+                start_time = time.time()
+                val_loss = self.validate()
+                print("VALIDATION TIME", time.time() - start_time)
+                
+                self.train_dict["val_loss"].append(val_loss)            
+                        
+            print("TRAIN LOSS", train_loss/train_exs)
             self.train_dict["train_loss"].append(train_loss/train_exs)
+            self.train_dict["adv_loss"].append(adv_loss_sum/train_exs)
+            self.train_dict["disc_loss"].append(disc_loss_sum/train_exs)
+
             # if i %  save_iter == 0: 
             self.save()
             print("Saved model.")
