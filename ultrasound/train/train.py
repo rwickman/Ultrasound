@@ -22,8 +22,8 @@ class Trainer:
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size,
-            num_workers=4,
-            prefetch_factor=4,
+            num_workers=num_workers,
+            prefetch_factor=prefetch_factor,
             drop_last = True,
             shuffle=True,
             multiprocessing_context="fork")
@@ -31,8 +31,8 @@ class Trainer:
         self.val_loader = DataLoader(
             self.val_dataset,
             batch_size,
-            num_workers=4,
-            prefetch_factor=4,
+            num_workers=2,
+            prefetch_factor=6,
             drop_last = False,
             shuffle=True,
             multiprocessing_context="fork")
@@ -51,6 +51,9 @@ class Trainer:
         if use_adversarial_loss:
             self.disc = Discriminator().to(device)
             self.disc_optimizer = optim.AdamW(self.disc.parameters(), lr=disc_lr)
+        
+        if not os.path.exists(save_dir):
+            os.mkdir(save_dir)
 
         if load:
             self.load()
@@ -87,11 +90,6 @@ class Trainer:
         self.optimizer.load_state_dict(model_dict["optimizer"])
         self.optimizer.param_groups[0]["lr"] = lr
 
-        
-        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
-
-
-        
         if use_adversarial_loss and "disc" in model_dict:
             self.disc.load_state_dict(model_dict["disc"])
             self.disc_optimizer.load_state_dict(model_dict["disc_optimizer"])
@@ -192,7 +190,7 @@ class Trainer:
                     loss, adv_loss, disc_loss = self.train_step(SOS_pred, SOS_true, cur_step)
                     
 
-                    if train_exs % 1024 == 0:
+                    if train_exs % 128 == 0:
                         print("\nsig_at.enc.layers[0].linear2", self.model.sig_att.enc.layers[0].linear2.weight.grad.min(), self.model.sig_att.enc.layers[0].linear2.weight.grad.max(), self.model.sig_att.enc.layers[0].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[0].linear2.weight.grad.std())
                         print("sig_at.enc.layers[2].linear2", self.model.sig_att.enc.layers[2].linear2.weight.grad.min(), self.model.sig_att.enc.layers[2].linear2.weight.grad.max(), self.model.sig_att.enc.layers[2].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[2].linear2.weight.grad.std())                
                         print("sig_reduce.conv_out", self.model.sig_reduce.time_convs[0].weight.grad.min(), self.model.sig_reduce.time_convs[0].weight.grad.max())
@@ -213,7 +211,7 @@ class Trainer:
                     prev_batches.append(batch)
                     
 
-                if train_exs > 128:
+                if train_exs > 1024:
                     break 
 
 

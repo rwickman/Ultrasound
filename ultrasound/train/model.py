@@ -4,11 +4,6 @@ import scipy.io as io
 
 from config import *
 
-# print("READING DATA")
-# x = io.loadmat("/media/data/datasets/Ultrasound/experiment_01/OutputRepacked/FSA_Layer03.mat")["FSA"]
-# print("DATA SIZE: ", x.shape)
-
-
 class SignalReduce(nn.Module):
     """Reduce the input size."""
     def __init__(self):
@@ -24,23 +19,20 @@ class SignalReduce(nn.Module):
 
                 time_convs.append(nn.Conv1d(NUM_TRANSMIT, time_channels[0], KERNEL_SIZE, stride=STRIDE, padding=PADDING))
                 time_convs.append(nn.BatchNorm1d(time_channels[i]))
-                time_convs.append(nn.GELU())
+                time_convs.append(nn.ReLU())
 
 
                 time_convs.append(nn.Conv1d(time_channels[0], time_channels[0], 2, stride=2, padding=1))
                 time_convs.append(nn.BatchNorm1d(time_channels[i]))
-                time_convs.append(nn.GELU())
+                time_convs.append(nn.ReLU())
             else:
                 time_convs.append(nn.Conv1d(time_channels[i-1], time_channels[i], kernel_size=3, stride=1, padding=1))
                 time_convs.append(nn.BatchNorm1d(time_channels[i]))
-                time_convs.append(nn.GELU())
+                time_convs.append(nn.ReLU())
 
         self.time_convs = nn.Sequential(*time_convs)
 
         # Convolution for reducing all received for a single transmit into a single vector
-        # self.transmit_conv = nn.Sequential(
-        #     nn.Conv2d(NUM_TRANSMIT, 1, (1, 1), stride=1),
-        #     nn.LeakyReLU(0.2))
         self.dropout = nn.Dropout(dropout)
         self.fn_out = nn.Linear(SIG_OUT_SIZE, EMB_SIZE)
 
@@ -65,26 +57,22 @@ class SignalAtt(nn.Module):
         enc_layer = nn.TransformerEncoderLayer(
             EMB_SIZE,
             nhead=NUM_HEADS,
-            activation="gelu",
             dim_feedforward=DFF,
             batch_first=True)
         self.pos_embs = nn.Parameter(torch.randn(1, NUM_TRANSMIT, EMB_SIZE))
         self.enc = nn.TransformerEncoder(
             enc_layer,
-            num_layers=NUM_ENC_LAYERS)
-        self.layer_norm = nn.LayerNorm(EMB_SIZE)
+            num_layers=NUM_ENC_LAYERS,)
+        # self.layer_norm = nn.LayerNorm(EMB_SIZE)
+        self.dropout = nn.Dropout(dropout)
 
 
     def forward(self, x):
         batch_size = x.shape[0]
-        # print("x", x[:, :, 0], x.mean())
+        
         x = x + self.pos_embs
-        x_out = self.enc(x)
-
-        #print("x_out.mean()", x_out[:, :, 0], x_out.mean()) 
-        x = x_out + x
-        x = self.layer_norm(x)
-        #print("AFTER LAYER x_out.mean()", x[:, :, 0], x.mean()) 
+        x = self.enc(x)
+        x = self.dropout(x)
 
         return x
 
@@ -101,10 +89,10 @@ class UpsampleLayer(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_ch, out_ch, 3, padding=1, padding_mode="reflect"),
             nn.BatchNorm2d(out_ch),
-            nn.GELU(),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(out_ch, out_ch, 3, padding=1, padding_mode="reflect"),
             nn.BatchNorm2d(out_ch),
-            nn.GELU()
+            nn.LeakyReLU(0.2, inplace=True)
         )
         self.dropout = nn.Dropout(dropout)
 
