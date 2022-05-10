@@ -11,15 +11,18 @@ time_channels = [128, 64, 32, 16, 8, 1]
 PADDING = (KERNEL_SIZE - SIGNAL_LENGTH % KERNEL_SIZE) // 2
 
 """Data settings."""
+# Location of npy slices
 data_inp_dir = "/media/data/datasets/Ultrasound/AbSlices_npy/"
+# Location of SOS mat 
 SOS_MAP_mat = "/media/data/datasets/Ultrasound/experiment_01/SOSMapAbOnly.mat"
 
+# Location of synthetic SOS mats
 aug_SOS_mats = [
     "/media/data/datasets/Ultrasound/aug_inp/aug_sos_0.mat",
-    # "/media/data/datasets/Ultrasound/aug_inp/aug_sos_1.mat",
+    "/media/data/datasets/Ultrasound/aug_inp/aug_sos_1.mat",
     "/media/data/datasets/Ultrasound/aug_inp/aug_sos_2.mat",
     "/media/data/datasets/Ultrasound/aug_inp/aug_sos_3.mat",
-    # "/media/data/datasets/Ultrasound/aug_inp/aug_sos_4.mat",
+    "/media/data/datasets/Ultrasound/aug_inp/aug_sos_4.mat",
     "/media/data/datasets/Ultrasound/aug_inp/aug_sos_5.mat",
     "/media/data/datasets/Ultrasound/aug_inp/aug_sos_6.mat",
     "/media/data/datasets/Ultrasound/aug_inp/aug_sos_7.mat",
@@ -27,13 +30,13 @@ aug_SOS_mats = [
     "/media/data/datasets/Ultrasound/aug_inp/aug_sos_9.mat",
 ]
 
-
+# Location of synthetic input .npy files
 aug_FSA_inp_dirs = [
     "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch1_npy",
-    # "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch2_npy",
+    "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch2_npy",
     "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch3_npy",
     "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch4_npy",
-    # "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch5_npy",
+    "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch5_npy",
     "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch6_npy",
     "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch7_npy",
     "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch8_npy",
@@ -41,6 +44,7 @@ aug_FSA_inp_dirs = [
     "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch10_npy",
 ]
 
+# Number of slices
 num_exs = 62
 test_split_pct = 0.5
 
