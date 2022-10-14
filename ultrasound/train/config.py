@@ -2,11 +2,12 @@ import torch
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+SOS_RANGE = [1478, 2425]
 SIGNAL_LENGTH = 18650
 
-KERNEL_SIZE = 16
-STRIDE = 8
-time_channels = [128, 64, 32, 16, 8, 1]
+KERNEL_SIZE = 3
+STRIDE = 2
+time_channels = [64, 128, 64, 32, 16, 1]
 
 PADDING = (KERNEL_SIZE - SIGNAL_LENGTH % KERNEL_SIZE) // 2
 
@@ -58,7 +59,10 @@ FSA_scale_fac = 60
 
 """Training hyperparameters."""
 # Where the model should be trained
-save_dir="model_3/"
+#save_dir="model_newarch_5/"
+save_dir="model_newarch_6"
+
+use_aug_data = True
 
 # Loading the model or not
 load=True
@@ -67,13 +71,13 @@ load=True
 save_iter = 10
 
 # Learning rates other potential values [1e-5, 2e-5, ..., 1e-4, 2e-4]
-lr = 1e-4
+lr = 2e-4
 
 # Number of images to make prediction on at a time
-batch_size = 4
+batch_size = 6
 
 # Number of previous batches to store. Since loading takes awhile, this enables retraining on previous loaded batches
-batch_buffer_size = 8
+batch_buffer_size = 12
 epochs = 4000
 
 # Number of workers loading data: approx.range of [1, 4]
@@ -97,11 +101,11 @@ disc_lr = 5e-5
 disc_lam = 0.05
 
 """Transformer encoder hyperparameters."""
-SIG_OUT_SIZE =  1166#SIGNAL_LENGTH // KERNEL_SIZE + 1 if PADDING > 0 else 0
+SIG_OUT_SIZE =  581#SIGNAL_LENGTH // KERNEL_SIZE + 1 if PADDING > 0 else 0
 EMB_SIZE = 512
 NUM_HEADS =  8
 DFF = 1024
-NUM_ENC_LAYERS = 3
+NUM_ENC_LAYERS = 6
 
 
 """Decoder hyperparameters."""

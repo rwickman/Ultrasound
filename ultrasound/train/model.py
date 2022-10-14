@@ -11,24 +11,10 @@ class SignalReduce(nn.Module):
 
         # Convolutions for reducing time dimension
         time_convs = []
-        for i in range(len(time_channels)):
-            if i == 0:
-                # Slides along time dimension to reduce size
-                # time_convs.append(nn.Conv1d(time_channels[0], time_channels[0], KERNEL_SIZE, stride=STRIDE, padding=PADDING))
-                # time_convs.append(nn.LeakyReLU(0.2))
-
-                time_convs.append(nn.Conv1d(NUM_TRANSMIT, time_channels[0], KERNEL_SIZE, stride=STRIDE, padding=PADDING))
-                time_convs.append(nn.BatchNorm1d(time_channels[i]))
-                time_convs.append(nn.ReLU())
-
-
-                time_convs.append(nn.Conv1d(time_channels[0], time_channels[0], 2, stride=2, padding=1))
-                time_convs.append(nn.BatchNorm1d(time_channels[i]))
-                time_convs.append(nn.ReLU())
-            else:
-                time_convs.append(nn.Conv1d(time_channels[i-1], time_channels[i], kernel_size=3, stride=1, padding=1))
-                time_convs.append(nn.BatchNorm1d(time_channels[i]))
-                time_convs.append(nn.ReLU())
+        for i in range(1, len(time_channels)):
+            time_convs.append(nn.Conv1d(time_channels[i-1], time_channels[i], kernel_size=KERNEL_SIZE, stride=STRIDE, padding=0))
+            time_convs.append(nn.BatchNorm1d(time_channels[i], momentum=0.01))
+            time_convs.append(nn.ReLU())
 
         self.time_convs = nn.Sequential(*time_convs)
 
@@ -41,9 +27,11 @@ class SignalReduce(nn.Module):
         batch_size = x.shape[0]
 
         x = x.view(x.shape[0] * x.shape[1], x.shape[2], x.shape[-1])
-
+        # print("x.shape", x.shape)
+        # for l in self.time_convs:
+        #     x = l(x)
+        #     print("x.shape", x.shape)
         x = self.time_convs(x)
-
         # Reshape into batches
         x = x.view(batch_size, NUM_TRANSMIT, x.shape[-1])
         x = self.dropout(x)
@@ -88,10 +76,10 @@ class UpsampleLayer(nn.Module):
             self.up = nn.Upsample(out_size)
         self.conv = nn.Sequential(
             nn.Conv2d(in_ch, out_ch, 3, padding=1, padding_mode="reflect"),
-            nn.BatchNorm2d(out_ch),
+            nn.BatchNorm2d(out_ch, momentum=0.01),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(out_ch, out_ch, 3, padding=1, padding_mode="reflect"),
-            nn.BatchNorm2d(out_ch),
+            nn.BatchNorm2d(out_ch, momentum=0.01),
             nn.LeakyReLU(0.2, inplace=True)
         )
         self.dropout = nn.Dropout(dropout)
@@ -135,7 +123,6 @@ class SignalDecoder(nn.Module):
         x = self.up_layer_6(x)
 
         x = self.conv_out(x)
-        
         return x
         
 

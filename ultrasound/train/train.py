@@ -100,8 +100,6 @@ class Trainer:
             train_dict_saved = json.load(f)
             for k, v in train_dict_saved.items():
                 self.train_dict[k] = v
-        
-        print("self.train_dict", self.train_dict)
 
 
     def validate(self):
@@ -154,7 +152,7 @@ class Trainer:
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-        print("recon_loss", recon_loss.item(), "adv_loss", adv_loss.item(), "disc_loss", disc_loss.item())
+        print("recon_loss", recon_loss.item())
 
         
         
@@ -175,6 +173,8 @@ class Trainer:
                 cur_step = 0
                 rand_idxs = np.random.permutation(len(prev_batches) + 1)
                 for i in rand_idxs:
+                    if len(prev_batches) < batch_buffer_size//2:
+                        break
                     if i >= 1 and len(prev_batches) > i-1:
                         SOS_true, FSA = prev_batches[i-1]
                     else:
@@ -196,7 +196,7 @@ class Trainer:
                         print("sig_reduce.conv_out", self.model.sig_reduce.time_convs[0].weight.grad.min(), self.model.sig_reduce.time_convs[0].weight.grad.max())
                         print("sig_reduce.fn_out", self.model.sig_reduce.fn_out.weight.grad.min(), self.model.sig_reduce.fn_out.weight.grad.max())
                         print("sig_dec.conv_out", self.model.sig_dec.conv_out.weight.grad.min(), self.model.sig_dec.conv_out.weight.grad.max())
-
+                        print("SOS_pred.min()", SOS_pred.min(), SOS_pred.max())
 
                     train_loss += loss.item() * FSA.shape[0]
                     adv_loss_sum += adv_loss.item() * FSA.shape[0]
