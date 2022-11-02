@@ -5,11 +5,33 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 SOS_RANGE = [1478, 2425]
 SIGNAL_LENGTH = 18650
 
+
 KERNEL_SIZE = 3
 STRIDE = 2
 time_channels = [64, 128, 64, 32, 16, 1]
-
+time_out_sizes = [9325, 4663, 2332, 1166, 583]
+# time_channels = [64, 128, 64, 32, 1]
+# time_out_sizes = [9324, 4661, 2330, 1164]
 PADDING = (KERNEL_SIZE - SIGNAL_LENGTH % KERNEL_SIZE) // 2
+
+up_layer_norm_dict = {
+    256: (256, 16, 16),
+    128: (128, 32, 32),
+    64: (64, 64, 64),
+    32: (32, 128, 128),
+    16: (16, 256, 256),
+    8: (8, 300, 365),    
+}
+
+
+# up_layer_norm_dict = {
+#     512: (512, 16, 16),
+#     256: (256, 32, 32),
+#     128: (128, 64, 64),
+#     64: (64, 128, 128),
+#     32: (32, 256, 256),
+#     16: (16, 300, 365)
+# }
 
 """Data settings."""
 # Location of npy slices
@@ -56,28 +78,32 @@ NUM_TRANSMIT = 64
 
 # Scaling factor for input signals
 FSA_scale_fac = 60
+FSA_RANGE = [-60, 61]
+SOS_RANGE = [1478, 2425]
 
 """Training hyperparameters."""
 # Where the model should be trained
 #save_dir="model_newarch_5/"
-save_dir="model_newarch_6"
+save_dir="model_newarch_9_updated_no_aug"
 
-use_aug_data = True
+use_aug_data = False
 
 # Loading the model or not
 load=True
+
+use_pos_embs = True
 
 # How often to run over validation set and save a copy of the model
 save_iter = 10
 
 # Learning rates other potential values [1e-5, 2e-5, ..., 1e-4, 2e-4]
-lr = 2e-4
+lr = 1e-4
 
 # Number of images to make prediction on at a time
-batch_size = 6
+batch_size = 5
 
 # Number of previous batches to store. Since loading takes awhile, this enables retraining on previous loaded batches
-batch_buffer_size = 12
+batch_buffer_size = 1
 epochs = 4000
 
 # Number of workers loading data: approx.range of [1, 4]
@@ -85,7 +111,7 @@ num_workers = 2
 # Number of data points: approx. range of [1, 8]
 prefetch_factor=6
 
-dropout = 0.05
+dropout = 0.1
 recon_lam = 10
 
 
@@ -101,14 +127,26 @@ disc_lr = 5e-5
 disc_lam = 0.05
 
 """Transformer encoder hyperparameters."""
-SIG_OUT_SIZE =  581#SIGNAL_LENGTH // KERNEL_SIZE + 1 if PADDING > 0 else 0
+#SIG_OUT_SIZE =  581#SIGNAL_LENGTH // KERNEL_SIZE + 1 if PADDING > 0 else 0
+# SIG_OUT_SIZE = 1164
+# EMB_SIZE = 1024
+
+SIG_OUT_SIZE = 583
 EMB_SIZE = 512
 NUM_HEADS =  8
 DFF = 1024
-NUM_ENC_LAYERS = 6
+NUM_ENC_LAYERS = 1
+
+# NUM_HEADS =  8
+# DFF = 1024
+# NUM_ENC_LAYERS = 3
 
 
 """Decoder hyperparameters."""
 IMG_OUT_SIZE = (300, 365)
 
 
+# SIG REDUCE PARAMETERS:  355105
+# SIG ATT PARAMETERS:  12649472
+# SIG DEC PARAMETERS:  2359737
+# TOTAL NUM PARAMETERS:  15364314

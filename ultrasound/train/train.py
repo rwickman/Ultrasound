@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-
+import random
 
 from torch.utils.data import DataLoader
 import scipy.io as io
@@ -12,7 +12,7 @@ import numpy as np
 
 from model import DensityModel
 from config import *
-from dataset import create_datasets
+from dataset import create_datasets, sample_aug
 from discriminator import Discriminator, discriminator_loss
 
 class Trainer:
@@ -59,7 +59,7 @@ class Trainer:
             self.load()
 
         print("SIG REDUCE PARAMETERS: ", sum(p.numel() for p in self.model.sig_reduce.parameters() if p.requires_grad))
-        print("SIG ATT PARAMETERS: ", sum(p.numel() for p in self.model.sig_att.parameters() if p.requires_grad))
+        # print("SIG ATT PARAMETERS: ", sum(p.numel() for p in self.model.sig_att.parameters() if p.requires_grad))
         print("SIG DEC PARAMETERS: ", sum(p.numel() for p in self.model.sig_dec.parameters() if p.requires_grad))
         print("TOTAL NUM PARAMETERS: ", sum(p.numel() for p in self.model.parameters() if p.requires_grad))
 
@@ -148,6 +148,7 @@ class Trainer:
             
         else:
             loss = recon_lam * recon_loss
+
             # Train the model
             self.optimizer.zero_grad()
             loss.backward()
@@ -168,51 +169,36 @@ class Trainer:
             disc_loss_sum = 0
             train_exs = 0
             start_time = time.time()
-            prev_batches = deque([])
             for batch in self.train_loader:
                 cur_step = 0
-                rand_idxs = np.random.permutation(len(prev_batches) + 1)
-                for i in rand_idxs:
-                    if len(prev_batches) < batch_buffer_size//2:
-                        break
-                    if i >= 1 and len(prev_batches) > i-1:
-                        SOS_true, FSA = prev_batches[i-1]
-                    else:
-                        SOS_true, FSA = batch
-
-                    SOS_true = SOS_true.to(device)
-                    FSA = FSA.to(device)
-
+                SOS_true, FSA = batch 
+                SOS_true = SOS_true.to(device)
+                FSA = FSA.to(device)
+                aug = sample_aug()
+                if aug:
+                    SOS_true = aug(SOS_true)
                     # Get model prediction
+                    SOS_pred = self.model(FSA, aug=aug)
+                else:
                     SOS_pred = self.model(FSA)
 
-                    # Update the model
-                    loss, adv_loss, disc_loss = self.train_step(SOS_pred, SOS_true, cur_step)
-                    
 
-                    if train_exs % 128 == 0:
-                        print("\nsig_at.enc.layers[0].linear2", self.model.sig_att.enc.layers[0].linear2.weight.grad.min(), self.model.sig_att.enc.layers[0].linear2.weight.grad.max(), self.model.sig_att.enc.layers[0].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[0].linear2.weight.grad.std())
-                        print("sig_at.enc.layers[2].linear2", self.model.sig_att.enc.layers[2].linear2.weight.grad.min(), self.model.sig_att.enc.layers[2].linear2.weight.grad.max(), self.model.sig_att.enc.layers[2].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[2].linear2.weight.grad.std())                
-                        print("sig_reduce.conv_out", self.model.sig_reduce.time_convs[0].weight.grad.min(), self.model.sig_reduce.time_convs[0].weight.grad.max())
-                        print("sig_reduce.fn_out", self.model.sig_reduce.fn_out.weight.grad.min(), self.model.sig_reduce.fn_out.weight.grad.max())
-                        print("sig_dec.conv_out", self.model.sig_dec.conv_out.weight.grad.min(), self.model.sig_dec.conv_out.weight.grad.max())
-                        print("SOS_pred.min()", SOS_pred.min(), SOS_pred.max())
+                # Update the model
+                loss, adv_loss, disc_loss = self.train_step(SOS_pred, SOS_true, cur_step)
 
-                    train_loss += loss.item() * FSA.shape[0]
-                    adv_loss_sum += adv_loss.item() * FSA.shape[0]
-                    disc_loss_sum += disc_loss.item() * FSA.shape[0]
-                    train_exs += FSA.shape[0]
-                    cur_step += 1
+                if train_exs % 128 == 0:
+                    #print("\nsig_at.enc.layers[0].linear2", self.model.sig_att.enc.layers[0].linear2.weight.grad.min(), self.model.sig_att.enc.layers[0].linear2.weight.grad.max(), self.model.sig_att.enc.layers[0].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[0].linear2.weight.grad.std())
+                    #print("sig_at.enc.layers[2].linear2", self.model.sig_att.enc.layers[2].linear2.weight.grad.min(), self.model.sig_att.enc.layers[2].linear2.weight.grad.max(), self.model.sig_att.enc.layers[2].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[2].linear2.weight.grad.std())                
+                    print("sig_reduce.conv_out", self.model.sig_reduce.time_convs[0].weight.grad.min(), self.model.sig_reduce.time_convs[0].weight.grad.max())
+                    print("sig_reduce.fn_out", self.model.sig_reduce.fn_out.weight.grad.min(), self.model.sig_reduce.fn_out.weight.grad.max())
+                    print("sig_dec.conv_out", self.model.sig_dec.conv_out.weight.grad.min(), self.model.sig_dec.conv_out.weight.grad.max())
+                    print("SOS_pred.min()", SOS_pred.min(), SOS_pred.max())
 
-                if len(prev_batches) < batch_buffer_size:
-                    prev_batches.append(batch)
-                else:
-                    prev_batches.popleft()
-                    prev_batches.append(batch)
-                    
-
-                if train_exs > 1024:
-                    break 
+                train_loss += loss.item() * FSA.shape[0]
+                adv_loss_sum += adv_loss.item() * FSA.shape[0]
+                disc_loss_sum += disc_loss.item() * FSA.shape[0]
+                train_exs += FSA.shape[0]
+                cur_step += 1
 
 
             print("SOS_pred.min()", SOS_pred.min(), SOS_pred.max())
@@ -238,7 +224,7 @@ class Trainer:
             self.train_dict["adv_loss"].append(adv_loss_sum/train_exs)
             self.train_dict["disc_loss"].append(disc_loss_sum/train_exs)
 
-            # if i %  save_iter == 0: 
+            # if i %  5 == 0: 
             self.save()
             print("Saved model.")
 
