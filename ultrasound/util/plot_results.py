@@ -5,7 +5,7 @@ import seaborn as sns
 
 sns.set(style="darkgrid", font_scale=1.5)
 
-model_dir = "model_3/train_dict.json"
+model_dir = "model_newarch_6/train_dict.json"
 
 with open(model_dir) as f:
     train_dict = json.load(f)
