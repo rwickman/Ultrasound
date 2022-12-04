@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import random
-
+import gc
 from torch.utils.data import DataLoader
 import scipy.io as io
 import json, os, time
@@ -14,6 +14,7 @@ from model import DensityModel
 from config import *
 from dataset import create_datasets, sample_aug
 from discriminator import Discriminator, discriminator_loss
+from skimage.metrics import structural_similarity, peak_signal_noise_ratio
 
 class Trainer:
     def __init__(self):
@@ -30,7 +31,7 @@ class Trainer:
         
         self.val_loader = DataLoader(
             self.val_dataset,
-            batch_size,
+            6,
             num_workers=2,
             prefetch_factor=6,
             drop_last = False,
@@ -40,15 +41,18 @@ class Trainer:
         self.train_dict = {
             "train_loss": [],
             "val_loss": [],
-            "adv_loss": [],
-            "disc_loss": []
+            "val_psnr": [],
+            "val_ssim": []
         }
 
+
         self.model = DensityModel().to(device)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
-        self.loss_fn = nn.MSELoss()
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=lr)
+        self.loss_fn = nn.L1Loss()
 
         if use_adversarial_loss:
+            self.train_dict["adv_loss"] = []
+            self.train_dict["disc_loss"] = []
             self.disc = Discriminator().to(device)
             self.disc_optimizer = optim.AdamW(self.disc.parameters(), lr=disc_lr)
         
@@ -58,11 +62,13 @@ class Trainer:
         if load:
             self.load()
 
+        self.avg_adv_loss = 0
+
         print("SIG REDUCE PARAMETERS: ", sum(p.numel() for p in self.model.sig_reduce.parameters() if p.requires_grad))
         # print("SIG ATT PARAMETERS: ", sum(p.numel() for p in self.model.sig_att.parameters() if p.requires_grad))
         print("SIG DEC PARAMETERS: ", sum(p.numel() for p in self.model.sig_dec.parameters() if p.requires_grad))
         print("TOTAL NUM PARAMETERS: ", sum(p.numel() for p in self.model.parameters() if p.requires_grad))
-
+        self.binary_mask = torch.tensor(io.loadmat("/media/data/datasets/Ultrasound/binaryMask.mat")["binaryMask"]).to(device)
 
     def save(self):
         model_dict = {
@@ -88,8 +94,9 @@ class Trainer:
 
         self.model.load_state_dict(model_dict["model"])
         self.optimizer.load_state_dict(model_dict["optimizer"])
-        self.optimizer.param_groups[0]["lr"] = lr
 
+        self.optimizer.param_groups[0]["lr"] = lr
+        # self.optimizer.param_groups[0]["weight_decay"] = 0.0
         if use_adversarial_loss and "disc" in model_dict:
             self.disc.load_state_dict(model_dict["disc"])
             self.disc_optimizer.load_state_dict(model_dict["disc_optimizer"])
@@ -101,50 +108,95 @@ class Trainer:
             for k, v in train_dict_saved.items():
                 self.train_dict[k] = v
 
-
     def validate(self):
         val_loss = 0
+        val_psnr = 0
+        val_ssim = 0
+        self.model.eval()
+        
         for batch in self.val_loader:
             SOS_true, FSA = batch
-            SOS_true = SOS_true.to(device)
+            SOS_true = SOS_true.to(device) * self.binary_mask
             FSA = FSA.to(device)
-            SOS_pred = self.model(FSA)
+            SOS_pred = self.model(FSA) * self.binary_mask
             val_loss += self.loss_fn(SOS_pred, SOS_true).item() * FSA.shape[0]
+            for i in range(len(SOS_true)):
+                val_ssim += structural_similarity(SOS_pred[i].detach().cpu().numpy(), SOS_true[i].detach().cpu().numpy())
+                val_psnr += peak_signal_noise_ratio(SOS_pred[i].detach().cpu().numpy(), SOS_true[i].detach().cpu().numpy())
         
+        self.model.train()
         val_loss = val_loss / len(self.val_dataset)
-        
+        val_ssim = val_ssim / len(self.val_dataset)
+        val_psnr = val_psnr / len(self.val_dataset)
+
         print("VALIDATION LOSS:", val_loss)
-        return val_loss
+
+        del FSA
+        del SOS_true
+        del SOS_pred
+        del batch
+
+        return val_loss, val_ssim, val_psnr
+
+    
+    def adjust_lr(self):
+        if len(self.train_dict['train_loss']) < warm_up_epochs:
+            inter_step = len(self.train_dict['train_loss']) / warm_up_epochs
+            print("LR", (1-inter_step) * warm_up_lr + inter_step * lr)
+            self.optimizer.param_groups[0]["lr"] = (1-inter_step) * warm_up_lr + inter_step * lr
+        else:
+            self.optimizer.param_groups[0]["lr"] = lr
 
     
     def train_step(self, SOS_pred, SOS_true, cur_step):
-        recon_loss = self.loss_fn(SOS_pred, SOS_true)
+        recon_loss = self.loss_fn(SOS_pred, SOS_true * self.binary_mask)
         disc_loss = torch.zeros(1)
         adv_loss = torch.zeros(1)
         if use_adversarial_loss:
             SOS_pred = SOS_pred.unsqueeze(1)
             SOS_true = SOS_true.unsqueeze(1)
 
-            disc_true_pred = self.disc(SOS_true)
-            disc_fake_pred = self.disc(SOS_pred.detach())
+            gt_output = self.disc(SOS_true.detach())
+            sr_output = self.disc(SOS_pred)
+            d_loss_gt = discriminator_loss(
+                gt_output - torch.mean(sr_output),
+                torch.zeros(SOS_pred.shape[0], dtype=torch.float32, device=device)) * 0.5
+            d_loss_sr = discriminator_loss(
+                sr_output - torch.mean(gt_output),
+                torch.ones(SOS_pred.shape[0], dtype=torch.float32, device=device)) * 0.5
+            
+            adv_loss = d_loss_gt + d_loss_sr
+            print("adv_loss", disc_lam * adv_loss)
 
-            true_loss = discriminator_loss(disc_true_pred, torch.ones(SOS_pred.shape[0], dtype=torch.float32, device=device) - 0.2)
-            fake_loss = discriminator_loss(disc_fake_pred, torch.zeros(SOS_pred.shape[0], dtype=torch.float32, device=device))
-            
-            
-            disc_loss = true_loss + fake_loss
-            if cur_step % 4 == 0:
-                self.disc_optimizer.zero_grad()
-                disc_loss.backward()
-                self.disc_optimizer.step()
-        
-            disc_fake_pred = self.disc(SOS_pred)
-            adv_loss = discriminator_loss(disc_fake_pred, torch.ones(SOS_pred.shape[0], dtype=torch.float32, device=device) - 0.2) 
             loss = recon_lam * recon_loss + disc_lam * adv_loss
             # Train the model
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+            if self.avg_adv_loss == 0.0:
+
+                self.avg_adv_loss = adv_loss.detach().cpu().item()
+            else:
+                self.avg_adv_loss = self.avg_adv_loss * 0.9 + adv_loss.detach().cpu().item() * 0.1
+            
+            print("self.avg_adv_loss",  self.avg_adv_loss * disc_lam)
+            if disc_lam * self.avg_adv_loss < 0.01:
+                gt_output = self.disc(SOS_true)
+                sr_output = self.disc(SOS_pred.detach())
+                true_loss = discriminator_loss(gt_output - torch.mean(sr_output), torch.ones(SOS_pred.shape[0], dtype=torch.float32, device=device))
+                fake_loss = discriminator_loss(sr_output - torch.mean(gt_output), torch.zeros(SOS_pred.shape[0], dtype=torch.float32, device=device))
+                disc_loss = (true_loss + fake_loss) / 2
+                #print("UPDATING DISC")
+                print("gt_output", gt_output, "sr_output", sr_output)
+                print("gt_output - torch.mean(sr_output)", gt_output - torch.mean(sr_output))
+                print("sr_output - torch.mean(gt_output)", sr_output - torch.mean(gt_output))
+                
+
+                self.disc_optimizer.zero_grad()
+                disc_loss.backward()
+                print("self.disc.features[-3] grad", self.disc.features[-3].weight.grad.min(), self.disc.features[-3].weight.grad.max())
+                print("self.disc.features[-3] grad", self.disc.features[0].weight.grad.min(), self.disc.features[0].weight.grad.max())
+                self.disc_optimizer.step()
             
         else:
             loss = recon_lam * recon_loss
@@ -154,6 +206,7 @@ class Trainer:
             loss.backward()
             self.optimizer.step()
         print("recon_loss", recon_loss.item())
+        
 
         
         
@@ -162,47 +215,63 @@ class Trainer:
         
 
     def train(self):
-        
+        cur_step = 0
         for i in range(epochs):
+            self.adjust_lr()
             train_loss = 0
             adv_loss_sum = 0
             disc_loss_sum = 0
             train_exs = 0
             start_time = time.time()
+
             for batch in self.train_loader:
-                cur_step = 0
                 SOS_true, FSA = batch 
                 SOS_true = SOS_true.to(device)
                 FSA = FSA.to(device)
                 aug = sample_aug()
-                if aug:
-                    SOS_true = aug(SOS_true)
+                
+                if aug:    
+                    SOS_true = aug(SOS_true * self.binary_mask)
+                    bm = aug(self.binary_mask.unsqueeze(0))[0]
+
                     # Get model prediction
-                    SOS_pred = self.model(FSA, aug=aug)
+                    SOS_pred = self.model(FSA, aug=aug) * bm
+
                 else:
-                    SOS_pred = self.model(FSA)
+                    SOS_pred = self.model(FSA, aug=aug) * self.binary_mask
+
+                
 
 
                 # Update the model
                 loss, adv_loss, disc_loss = self.train_step(SOS_pred, SOS_true, cur_step)
 
-                if train_exs % 128 == 0:
-                    #print("\nsig_at.enc.layers[0].linear2", self.model.sig_att.enc.layers[0].linear2.weight.grad.min(), self.model.sig_att.enc.layers[0].linear2.weight.grad.max(), self.model.sig_att.enc.layers[0].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[0].linear2.weight.grad.std())
-                    #print("sig_at.enc.layers[2].linear2", self.model.sig_att.enc.layers[2].linear2.weight.grad.min(), self.model.sig_att.enc.layers[2].linear2.weight.grad.max(), self.model.sig_att.enc.layers[2].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[2].linear2.weight.grad.std())                
-                    print("sig_reduce.conv_out", self.model.sig_reduce.time_convs[0].weight.grad.min(), self.model.sig_reduce.time_convs[0].weight.grad.max())
-                    print("sig_reduce.fn_out", self.model.sig_reduce.fn_out.weight.grad.min(), self.model.sig_reduce.fn_out.weight.grad.max())
-                    print("sig_dec.conv_out", self.model.sig_dec.conv_out.weight.grad.min(), self.model.sig_dec.conv_out.weight.grad.max())
+                if cur_step % 32 == 0:
+                    print("\nsig_at.enc.layers[0].linear2", self.model.sig_att.enc.layers[0].linear2.weight.grad.min(), self.model.sig_att.enc.layers[0].linear2.weight.grad.max(), self.model.sig_att.enc.layers[0].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[0].linear2.weight.grad.std())
+                    print("sig_at.enc.layers[1].linear2", self.model.sig_att.enc.layers[1].linear2.weight.grad.min(), self.model.sig_att.enc.layers[1].linear2.weight.grad.max(), self.model.sig_att.enc.layers[1].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[1].linear2.weight.grad.std())                
+                    print("sig_reduce.time_convs[0]", self.model.sig_reduce.time_convs[0].weight.grad.min(), self.model.sig_reduce.time_convs[0].weight.grad.max())
+                    #print("sig_reduce.fn_out", self.model.sig_reduce.fn_out.weight.grad.min(), self.model.sig_reduce.fn_out.weight.grad.max())
+                    print("sig_dec.conv_out", self.model.sig_dec.unet.outc.conv.weight.grad.min(), self.model.sig_dec.unet.outc.conv.weight.grad.max())
+                    #print("sig_dec.conv_out", self.model.sig_dec.att_unet.Conv_1x1.weight.grad.min(), self.model.sig_dec.att_unet.Conv_1x1.weight.grad.max())
                     print("SOS_pred.min()", SOS_pred.min(), SOS_pred.max())
-
+                # if train_exs > 128:
+                #     break
                 train_loss += loss.item() * FSA.shape[0]
                 adv_loss_sum += adv_loss.item() * FSA.shape[0]
                 disc_loss_sum += disc_loss.item() * FSA.shape[0]
                 train_exs += FSA.shape[0]
                 cur_step += 1
 
+            del SOS_true
+            del SOS_pred
+            del FSA
+            del batch
+            # print(gc.collect())
+            print(torch.cuda.empty_cache())
 
-            print("SOS_pred.min()", SOS_pred.min(), SOS_pred.max())
-            print("SOS_true.min()", SOS_true.min(), SOS_true.max())
+
+            # print("SOS_pred.min()", SOS_pred.min(), SOS_pred.max())
+            # print("SOS_true.min()", SOS_true.min(), SOS_true.max())
             # if (i + 1) % 2 == 0:
             #     fig, axs = plt.subplots(2)
 
@@ -210,24 +279,31 @@ class Trainer:
                 
             #     axs[1].imshow(SOS_pred[0].detach().cpu())
             #     plt.show()
+            self.optimizer.zero_grad()
             print("TRAIN TIME", time.time() - start_time)
             
             if len(self.train_dict["train_loss"]) % save_iter == 0:
                 start_time = time.time()
-                val_loss = self.validate()
+                val_loss, val_ssim, val_psnr = self.validate()
                 print("VALIDATION TIME", time.time() - start_time)
                 
                 self.train_dict["val_loss"].append(val_loss)            
+                self.train_dict["val_ssim"].append(val_ssim)
+                self.train_dict["val_psnr"].append(val_psnr)
                         
             print("TRAIN LOSS", train_loss/train_exs)
             self.train_dict["train_loss"].append(train_loss/train_exs)
-            self.train_dict["adv_loss"].append(adv_loss_sum/train_exs)
-            self.train_dict["disc_loss"].append(disc_loss_sum/train_exs)
+            if use_adversarial_loss:
+                self.train_dict["adv_loss"].append(adv_loss_sum/train_exs)
+                self.train_dict["disc_loss"].append(disc_loss_sum/train_exs)
 
-            # if i %  5 == 0: 
+
+            # if len(self.train_dict['train_loss']) % save_iter//2  == 0: 
+            #     self.save()
+            #     print("Saved model.")
+            
             self.save()
             print("Saved model.")
-
 
 # torch.multiprocessing.set_start_method("spawn")
 

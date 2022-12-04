@@ -6,14 +6,17 @@ SOS_RANGE = [1478, 2425]
 SIGNAL_LENGTH = 18650
 
 
-KERNEL_SIZE = 3
-STRIDE = 2
-time_channels = [64, 128, 64, 32, 16, 1]
+# KERNEL_SIZE = 3
+# STRIDE = 2
+kernel_sizes = [8, 4, 4, 4, 3]
+stride = [4, 2, 2, 2, 1]
+padding =[3, 2, 1, 1, 1]
+time_channels = [64, 64, 64, 64, 64, 1]
 time_out_sizes = [9325, 4663, 2332, 1166, 583]
 # time_channels = [64, 128, 64, 32, 1]
 # time_out_sizes = [9324, 4661, 2330, 1164]
-PADDING = (KERNEL_SIZE - SIGNAL_LENGTH % KERNEL_SIZE) // 2
-
+# PADDING = (KERNEL_SIZE - SIGNAL_LENGTH % KERNEL_SIZE) // 2
+paddings = []
 up_layer_norm_dict = {
     256: (256, 16, 16),
     128: (128, 32, 32),
@@ -22,6 +25,14 @@ up_layer_norm_dict = {
     16: (16, 256, 256),
     8: (8, 300, 365),    
 }
+# up_layer_norm_dict = {
+#     256: (256, 18, 22),
+#     128: (128, 36, 44),
+#     64: (64, 72, 88),
+#     32: (32, 144, 176),
+#     16: (16, 288, 352),
+#     8: (8, 300, 365),
+# }
 
 
 # up_layer_norm_dict = {
@@ -77,30 +88,29 @@ test_size = int(test_split_pct * num_exs)
 NUM_TRANSMIT = 64
 
 # Scaling factor for input signals
-FSA_scale_fac = 60
+FSA_scale_fac = 61
 FSA_RANGE = [-60, 61]
 SOS_RANGE = [1478, 2425]
 
 """Training hyperparameters."""
 # Where the model should be trained
 #save_dir="model_newarch_5/"
-save_dir="model_newarch_9_updated_no_aug"
+#save_dir="model_newarch_10_adam_no_aug"
+save_dir="model_newarch_13_warmup"
 
-use_aug_data = False
 
+use_aug_data = True
 # Loading the model or not
-load=True
-
-use_pos_embs = True
+load = True
 
 # How often to run over validation set and save a copy of the model
 save_iter = 10
 
 # Learning rates other potential values [1e-5, 2e-5, ..., 1e-4, 2e-4]
-lr = 1e-4
+lr = 8e-5
 
 # Number of images to make prediction on at a time
-batch_size = 5
+batch_size = 8
 
 # Number of previous batches to store. Since loading takes awhile, this enables retraining on previous loaded batches
 batch_buffer_size = 1
@@ -111,9 +121,11 @@ num_workers = 2
 # Number of data points: approx. range of [1, 8]
 prefetch_factor=6
 
-dropout = 0.1
-recon_lam = 10
+dropout = 0.05
+recon_lam = 1
 
+warm_up_epochs = 6
+warm_up_lr = 1e-6
 
 
 # use_classes = False
@@ -123,8 +135,8 @@ recon_lam = 10
 
 """GAN hyperparameters."""
 use_adversarial_loss = False
-disc_lr = 5e-5
-disc_lam = 0.05
+disc_lr = 1e-5
+disc_lam = 0.005
 
 """Transformer encoder hyperparameters."""
 #SIG_OUT_SIZE =  581#SIGNAL_LENGTH // KERNEL_SIZE + 1 if PADDING > 0 else 0
@@ -133,9 +145,9 @@ disc_lam = 0.05
 
 SIG_OUT_SIZE = 583
 EMB_SIZE = 512
-NUM_HEADS =  8
-DFF = 1024
-NUM_ENC_LAYERS = 1
+NUM_HEADS =  4
+DFF = 768
+NUM_ENC_LAYERS = 2
 
 # NUM_HEADS =  8
 # DFF = 1024

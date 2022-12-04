@@ -20,12 +20,16 @@ import random
 #                 SOS_map_converted[i, j, k] = find_nearest(SOS_map[i,j,k])
 #     return SOS_map_converted
 def sample_aug():
+    # aug = random.choice([
+    #     lambda x: torch.flip(x, dims=[1,2]), # Rotate 180
+    #     lambda x: torch.flip(x, dims=[2]), # Flip on vertical axis
+    #     lambda x: torch.flip(torch.flip(x, dims=[1,2]), dims=[2]), # Rotate + flip
+    #     None
+    #     ])
     aug = random.choice([
-        lambda x: torch.flip(x, dims=[1,2]), # Rotate 180
-        lambda x: torch.flip(x, dims=[2]), # Flip on vertical axis
-        lambda x: torch.flip(torch.flip(x, dims=[1,2]), dims=[2]), # Rotate + flip
-        None
-        ])
+            lambda x: torch.flip(x, dims=[2]), # Flip on vertical axis
+            None
+            ])
 
     return aug
 
@@ -51,7 +55,7 @@ def load_aug_data():
     #print("SOS MIN AND MAX AUG", SOS_maps.min(), SOS_maps.max())
 
     #print()
-    SOS_maps = np.log(SOS_maps)
+    #SOS_maps = np.log(SOS_maps)
     SOS_maps = (SOS_maps - SOS_maps.min()) / (SOS_maps.max() - SOS_maps.min())
 
 
@@ -78,7 +82,7 @@ def load_data(do_split=True):
     # Normalize
     # print("SOS MIN AND MAX", SOS_map.min(), SOS_map.max())
     # print("CORNER:", SOS_map[0, -1, -1])
-    SOS_map = np.log(SOS_map)
+    #SOS_map = np.log(SOS_map)
 
     SOS_map = (SOS_map - SOS_map.min()) / (SOS_map.max() - SOS_map.min())
     # print(np.unique(SOS_map))
@@ -158,8 +162,8 @@ class UltrasoundDataset(Dataset):
             FSA = np.load(self.FSA_mats[idx])
             FSA = torch.tensor(FSA,  dtype=torch.float32)
 
-        FSA = (FSA - FSA_RANGE[0]) / (FSA_RANGE[1] - FSA_RANGE[0])
-
+        #FSA = (FSA - FSA_RANGE[0]) / (FSA_RANGE[1] - FSA_RANGE[0])
+        FSA = FSA / FSA_scale_fac
         if FSA.shape[-1] < SIGNAL_LENGTH:
             FSA_pad = torch.zeros(NUM_TRANSMIT, NUM_TRANSMIT, SIGNAL_LENGTH, dtype=torch.float32)
             FSA_pad[:, :, :FSA.shape[-1]] = FSA

@@ -117,8 +117,8 @@ def gen_rand(img_files, img_num):
             img_SOS[img == val] = sampled_sos_vals[i]
             img_density[img == val] = sampled_density_vals[i]
         
-        img_SOS[binary_mask == 0] = SOS_RANGE[0]
-        img_density[binary_mask == 0] = DENSITY_RANGE[0]
+        img_SOS[binary_mask == 0] = 1540
+        img_density[binary_mask == 0] = 993
 
         img_SOSs[:, :, img_idx] = img_SOS
         img_densities[:, :, img_idx] = img_density

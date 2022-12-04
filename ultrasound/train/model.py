@@ -1,9 +1,10 @@
-
-
-
 import torch
 import torch.nn as nn
 import scipy.io as io
+
+from unet.unet_parts import DoubleConv
+from unet.att_unet import AttU_Net
+from unet.unet import UNet
 
 from config import *
 
@@ -18,10 +19,10 @@ class _ResidualDenseBlock(nn.Module):
 
     def __init__(self, channels: int, growth_channels: int) -> None:
         super(_ResidualDenseBlock, self).__init__()
-        self.conv1 = nn.Conv2d(channels + growth_channels * 0, growth_channels, (3, 3), (1, 1), (1, 1))
-        self.conv2 = nn.Conv2d(channels + growth_channels * 1, growth_channels, (3, 3), (1, 1), (1, 1))
-        self.conv3 = nn.Conv2d(channels + growth_channels * 2, growth_channels, (3, 3), (1, 1), (1, 1))
-        self.conv4 = nn.Conv2d(channels + growth_channels * 3, growth_channels, (3, 3), (1, 1), (1, 1))
+        self.conv1 = nn.Conv2d(channels + growth_channels * 0, growth_channels, (3, 3), (1, 1), (1, 1), padding_mode="reflect")
+        self.conv2 = nn.Conv2d(channels + growth_channels * 1, growth_channels, (3, 3), (1, 1), (1, 1), padding_mode="reflect")
+        self.conv3 = nn.Conv2d(channels + growth_channels * 2, growth_channels, (3, 3), (1, 1), (1, 1), padding_mode="reflect")
+        self.conv4 = nn.Conv2d(channels + growth_channels * 3, growth_channels, (3, 3), (1, 1), (1, 1), padding_mode="reflect")
         self.conv5 = nn.Conv2d(channels + growth_channels * 4, channels, (3, 3), (1, 1), (1, 1))
 
         self.leaky_relu = nn.LeakyReLU(0.2, True)
@@ -72,16 +73,33 @@ class SignalReduce(nn.Module):
 
         # Convolutions for reducing time dimension
         time_convs = []
-        for i in range(1, len(time_channels)):
-            time_convs.append(nn.Conv1d(time_channels[i-1], time_channels[i], kernel_size=KERNEL_SIZE, stride=STRIDE, padding=1))
-            time_convs.append(nn.LayerNorm((time_channels[i], time_out_sizes[i-1]), elementwise_affine=False))
+        for i in range(len(kernel_sizes)):
+            print(i)
+            time_convs.append(nn.Conv1d(time_channels[i], time_channels[i+1], kernel_size=kernel_sizes[i], stride=stride[i], padding=padding[i], bias=False))
+            time_convs.append(nn.BatchNorm1d(time_channels[i+1]))
+            #time_convs.append(nn.LayerNorm((time_channels[i], time_out_sizes[i+1])))
             time_convs.append(nn.GELU())
+            # time_convs.append(nn.Conv1d(time_channels[i], time_channels[i], kernel_size=KERNEL_SIZE, stride=1, padding=1))
+            # time_convs.append(nn.LayerNorm((time_channels[i], time_out_sizes[i-1]), elementwise_affine=False))
+            # time_convs.append(nn.GELU())
 
         self.time_convs = nn.Sequential(*time_convs)
 
         # Convolution for reducing all received for a single transmit into a single vector
-        self.dropout = nn.Dropout(dropout)
-        self.fn_out = nn.Linear(SIG_OUT_SIZE, EMB_SIZE)
+        
+        #self.dropout = nn.Dropout(dropout)
+        self.fn_out = nn.Sequential(
+            nn.Linear(SIG_OUT_SIZE, EMB_SIZE))
+        
+        # self.sig_out = nn.Sequential(
+        #     nn.Conv1d(NUM_TRANSMIT, NUM_TRANSMIT, kernel_size=1, stride=1, bias=False),
+        #     nn.GELU(),
+        #     nn.Conv1d(NUM_TRANSMIT, NUM_TRANSMIT, kernel_size=1, stride=1, bias=False))
+
+
+
+
+
 
 
     def forward(self, x):
@@ -89,69 +107,89 @@ class SignalReduce(nn.Module):
 
         x = x.view(x.shape[0] * x.shape[1], x.shape[2], x.shape[-1])
         # print("x.shape", x.shape)
-        # for l in self.time_convs:
-        #     x = l(x)
-            #print("x.shape", x.shape)
+        # for layer in self.time_convs:
+        #     x = layer(x)
+        #     print("x.shape", x.shape)
         x = self.time_convs(x)
+        
         # Reshape into batches
         x = x.view(batch_size, NUM_TRANSMIT, x.shape[-1])
-        # x = self.dropout(x)
+
         x = self.fn_out(x)
+        # x = self.sig_out(x)
+
         return x
 
-# class SignalAtt(nn.Module):
-#     """Perform MHA attention over the transmit embeddings.""" 
-#     def __init__(self):
-#         super().__init__()
-#         enc_layer = nn.TransformerEncoderLayer(
-#             EMB_SIZE,
-#             nhead=NUM_HEADS,
-#             dim_feedforward=DFF,
-#             batch_first=True)
-#         self.pos_embs = nn.Parameter(torch.randn(1, NUM_TRANSMIT, EMB_SIZE))
-#         self.enc = nn.TransformerEncoder(
-#             enc_layer,
-#             num_layers=NUM_ENC_LAYERS,)
-#         # self.layer_norm = nn.LayerNorm(EMB_SIZE)
-#         self.dropout = nn.Dropout(dropout)
+class SignalAtt(nn.Module):
+    """Perform MHA attention over the transmit embeddings.""" 
+    def __init__(self):
+        super().__init__()
+        enc_layer = nn.TransformerEncoderLayer(
+            EMB_SIZE,
+            nhead=NUM_HEADS,
+            dim_feedforward=DFF,
+            batch_first=True)
+        self.pos_embs = nn.Parameter(torch.randn(1, NUM_TRANSMIT, EMB_SIZE))
+        self.enc = nn.TransformerEncoder(
+            enc_layer,
+            num_layers=NUM_ENC_LAYERS,)
+        # self.layer_norm = nn.LayerNorm(EMB_SIZE)
+        # self.dropout = nn.Dropout(dropout)
 
 
-#     def forward(self, x):
-#         batch_size = x.shape[0]
+    def forward(self, x):
+        batch_size = x.shape[0]
+        # org_x = x
+        x = x + self.pos_embs
+        x = self.enc(x)
+        # x = x * 0.2 + org_x
 
-#         x = x + self.pos_embs
-#         x = self.enc(x)
+        return x
 
-#         return x
+
+class PixelShuffleUpsample(nn.Module):
+    def __init__(self, in_ch, scale_factor):
+        super().__init__()
+        self.up = nn.Sequential(
+            nn.Conv2d(in_ch, in_ch * (2 ** 2), 1),
+            nn.PixelShuffle(scale_factor),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+    
+    def forward(self, x):
+        return self.up(x)
 
 
 
 class UpsampleLayer(nn.Module):
-    def __init__(self, in_ch, out_ch, out_size=None):
+    def __init__(self, in_ch, out_ch, out_size=None, scale_factor=2):
         super().__init__()
         
         if out_size is None:
-            self.up = nn.Upsample(scale_factor=2)
+            self.up = nn.Sequential(
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+                DoubleConv(in_ch, out_ch, in_ch // 2))
         else:
-            self.up = nn.Upsample(out_size)
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, 3, padding=1, padding_mode="reflect"),
-            nn.LayerNorm(up_layer_norm_dict[out_ch], elementwise_affine=False),
-            nn.LeakyReLU(0.2, inplace=True),
-        )
-        self.rb_layer = _ResidualResidualDenseBlock(out_ch, out_ch//2)
-        #print("IN_CH", out_ch, "GROWTH", out_ch//2)
+            self.up = nn.Sequential(
+                nn.Upsample(out_size, mode='bilinear', align_corners=True),
+                DoubleConv(in_ch, out_ch, in_ch // 2))
+        # self.conv = nn.Sequential(
+        #     nn.Conv2d(in_ch, out_ch, 3, padding=1, padding_mode="reflect"),
+        #     #nn.LayerNorm(up_layer_norm_dict[out_ch], elementwise_affine=False),
+        #     nn.BatchNorm2d(out_ch),
+        #     nn.LeakyReLU(0.2, inplace=True),
+        # )
+        self.dropout = nn.Dropout2d(dropout)
 
-        self.dropout = nn.Dropout(dropout)
 
     
     def forward(self, x):
-        #print("x.shape", x.shape)
+        # print("x.shape", x.shape)
         x = self.up(x)
-        
-        x = self.conv(x)
+        #print("x.shape", x.shape)
 
-        x = self.rb_layer(x)
+        
+        # x = self.conv(x)
         x = self.dropout(x)
 
 
@@ -161,21 +199,26 @@ class UpsampleLayer(nn.Module):
 class SignalDecoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.up_layer_1 = UpsampleLayer(EMB_SIZE, EMB_SIZE//2)
-        self.up_layer_2 = UpsampleLayer(EMB_SIZE//2, EMB_SIZE//4)
-        self.up_layer_3 = UpsampleLayer(EMB_SIZE//4, EMB_SIZE//8)
-        self.up_layer_4 = UpsampleLayer(EMB_SIZE//8, EMB_SIZE//16)
-        self.up_layer_5 = UpsampleLayer(EMB_SIZE//16, EMB_SIZE//32)
+        self.up_layers = nn.Sequential(
+            UpsampleLayer(EMB_SIZE, EMB_SIZE//2),
+            UpsampleLayer(EMB_SIZE//2, EMB_SIZE//4), 
+            UpsampleLayer(EMB_SIZE//4, EMB_SIZE//8),
+            UpsampleLayer(EMB_SIZE//8, EMB_SIZE//16),
+            UpsampleLayer(EMB_SIZE//16, EMB_SIZE//32),
+            UpsampleLayer(EMB_SIZE//32, EMB_SIZE//32, out_size=IMG_OUT_SIZE))
 
-        self.up_layer_6 = UpsampleLayer(EMB_SIZE//32, EMB_SIZE//64, out_size=IMG_OUT_SIZE)
-        
-        self.conv_out = nn.Conv2d(EMB_SIZE//64, 1, kernel_size=1)
-        
+        # self.conv_out = nn.Sequential(
+        #     nn.Conv2d(EMB_SIZE//64, EMB_SIZE//64, 3, padding=1, padding_mode="reflect"),
+        #     nn.LeakyReLU(0.2, inplace=True),
+        #     nn.Conv2d(EMB_SIZE//64, 1, kernel_size=1))
+        self.unet = UNet(EMB_SIZE//32, 1)
+        #self.conv_out = nn.Conv2d(EMB_SIZE//64, EMB_SIZE//64, 3, padding=1, padding_mode="reflect", bias=False)
+
         
         
     def forward(self, x, aug=None):
-        #print("x.shape", x.shape)
         batch_size = x.shape[0]
+
         # Make the time dimension the channels
         x = x.permute((0, 2, 1))
 
@@ -186,34 +229,31 @@ class SignalDecoder(nn.Module):
 
         x = x.view(batch_size, x.shape[1], img_dim, img_dim)
      
-        #print("x.shape", x.shape)
-        
-        x = self.up_layer_1(x)
-        x = self.up_layer_2(x)
-        x = self.up_layer_3(x)
-        x = self.up_layer_4(x)
-        x = self.up_layer_5(x)
-        x = self.up_layer_6(x)
-        #print("x.shape", x.shape)
-        x = self.conv_out(x)
-        #print("x.shape", x.shape)
+        # Upsample it to be 16 x 300 x 365
+        x = self.up_layers(x)
+
+        # Run through reconstruction Att UNet Model to produce 1 x 300 x 365 
+        x = self.unet(x)
+
         return x
         
 
 class DensityModel(nn.Module):
     def __init__(self):
         super().__init__()
+
         self.sig_reduce = SignalReduce()
-        # self.sig_att = SignalAtt()
+        self.sig_att = SignalAtt()
         self.sig_dec = SignalDecoder()
         self.act_out = nn.Sigmoid()
 
 
     def forward(self, x, aug=None):
         x = self.sig_reduce(x)
+        x = self.sig_att(x)
         x = self.sig_dec(x, aug)
         x = self.act_out(x)
-        
+
         return x.view(x.shape[0], x.shape[2], x.shape[3])
         
 
