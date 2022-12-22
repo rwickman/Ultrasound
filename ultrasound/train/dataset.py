@@ -27,7 +27,7 @@ def sample_aug():
     #     None
     #     ])
     aug = random.choice([
-            lambda x: torch.flip(x, dims=[2]), # Flip on vertical axis
+            lambda x: torch.flip(x, dims=[1]), # Flip on vertical axis
             None
             ])
 
@@ -118,10 +118,11 @@ def load_data(do_split=True):
 def create_datasets(only_test=False):
     SOS_maps, FSA_mats = load_data()
     if not only_test:
-        if use_aug_data:
+        if use_synth_data:
             SOS_maps_train, FSA_mats_train = load_aug_data()
-            SOS_maps_train = np.concatenate((SOS_maps_train, SOS_maps[0][:10], SOS_maps[1][-10:]))
-            FSA_mats_train = FSA_mats_train + FSA_mats[0][:10] + FSA_mats[1][-10:]
+            if not use_only_synth_data:
+                SOS_maps_train = np.concatenate((SOS_maps_train, SOS_maps[0][:10], SOS_maps[1][-10:]))
+                FSA_mats_train = FSA_mats_train + FSA_mats[0][:10] + FSA_mats[1][-10:]
         else:
             SOS_maps_train = np.concatenate((SOS_maps[0][:10],  SOS_maps[1][-10:]))
             FSA_mats_train = FSA_mats[0][:10] + FSA_mats[1][-10:]

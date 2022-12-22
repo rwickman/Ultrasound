@@ -1,12 +1,12 @@
 import torch
 import torch.nn as nn
 import scipy.io as io
+import random
 
-from unet.unet_parts import DoubleConv
-from unet.att_unet import AttU_Net
-from unet.unet import UNet
+from ultrasound.train.unet.unet_parts import DoubleConv
+from ultrasound.train.unet.unet import UNet
 
-from config import *
+from ultrasound.train.config import *
 
 
 class _ResidualDenseBlock(nn.Module):
@@ -74,20 +74,16 @@ class SignalReduce(nn.Module):
         # Convolutions for reducing time dimension
         time_convs = []
         for i in range(len(kernel_sizes)):
-            print(i)
             time_convs.append(nn.Conv1d(time_channels[i], time_channels[i+1], kernel_size=kernel_sizes[i], stride=stride[i], padding=padding[i], bias=False))
             time_convs.append(nn.BatchNorm1d(time_channels[i+1]))
-            #time_convs.append(nn.LayerNorm((time_channels[i], time_out_sizes[i+1])))
             time_convs.append(nn.GELU())
-            # time_convs.append(nn.Conv1d(time_channels[i], time_channels[i], kernel_size=KERNEL_SIZE, stride=1, padding=1))
-            # time_convs.append(nn.LayerNorm((time_channels[i], time_out_sizes[i-1]), elementwise_affine=False))
-            # time_convs.append(nn.GELU())
-
-        self.time_convs = nn.Sequential(*time_convs)
 
         # Convolution for reducing all received for a single transmit into a single vector
+        self.time_convs = nn.Sequential(*time_convs)
+
+     
         
-        #self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout)
         self.fn_out = nn.Sequential(
             nn.Linear(SIG_OUT_SIZE, EMB_SIZE))
         
@@ -110,13 +106,20 @@ class SignalReduce(nn.Module):
         # for layer in self.time_convs:
         #     x = layer(x)
         #     print("x.shape", x.shape)
-        x = self.time_convs(x)
-        
-        # Reshape into batches
-        x = x.view(batch_size, NUM_TRANSMIT, x.shape[-1])
 
+        # if self.training and random.random() <= 0.05:
+        #     x = x + torch.normal(
+        #         mean=torch.tensor(0.0),
+        #         std=torch.tensor(0.005),
+        #         size=x.shape).to(device)
+        
+        x = self.time_convs(x)
+
+ 
+
+        # Reshape into batches
+        x = x.view(batch_size, NUM_TRANSMIT, x.shape[-1])    
         x = self.fn_out(x)
-        # x = self.sig_out(x)
 
         return x
 
@@ -132,17 +135,11 @@ class SignalAtt(nn.Module):
         self.pos_embs = nn.Parameter(torch.randn(1, NUM_TRANSMIT, EMB_SIZE))
         self.enc = nn.TransformerEncoder(
             enc_layer,
-            num_layers=NUM_ENC_LAYERS,)
-        # self.layer_norm = nn.LayerNorm(EMB_SIZE)
-        # self.dropout = nn.Dropout(dropout)
-
+            num_layers=NUM_ENC_LAYERS)
 
     def forward(self, x):
-        batch_size = x.shape[0]
-        # org_x = x
         x = x + self.pos_embs
         x = self.enc(x)
-        # x = x * 0.2 + org_x
 
         return x
 
@@ -161,66 +158,125 @@ class PixelShuffleUpsample(nn.Module):
 
 
 
-class UpsampleLayer(nn.Module):
-    def __init__(self, in_ch, out_ch, out_size=None, scale_factor=2):
+class DoubleConvResidual(nn.Module):
+    def __init__(self, in_ch, out_ch, use_act_out=True):
         super().__init__()
+        self.use_act_out = use_act_out
+        self.down_conv = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False, padding_mode="reflect"),
+            nn.BatchNorm2d(out_ch),
+            nn.LeakyReLU(0.2, inplace=True))
+
+        self.double_conv = nn.Sequential(
+            nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False, padding_mode="reflect"),
+            nn.BatchNorm2d(out_ch),
+            nn.LeakyReLU(0.2, inplace=False),
+            nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False, padding_mode="reflect"),
+            nn.BatchNorm2d(out_ch)
+        )
         
+        
+        self.act = nn.LeakyReLU(0.2, inplace=True)
+
+    def forward(self, x):
+        x = self.down_conv(x)
+        x_1 = self.double_conv(x)
+        return self.act(x + x_1 * 0.2)
+
+# class SimpleResidualNet(nn.Module):
+#     def __init__(self, in_ch, out_ch):
+#         super().__init__()
+#         self.down_conv = nn.Sequential(
+#             nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
+#             nn.LeakyReLU(0.2, inplace=True))
+
+#         self.conv_1 = DoubleConvResidual(out_ch, out_ch)
+#         self.conv_2 = DoubleConvResidual(out_ch, out_ch)
+#         self.conv_3 = DoubleConvResidual(out_ch, out_ch, use_act_out=False)
+#         self.act = nn.LeakyReLU(0.2, inplace=True)
+
+
+#     def forward(self, x):
+#         x = self.down_conv(x)
+#         x_1 = self.conv_1(x)
+#         x_1 = self.conv_2(x_1)
+#         x_1 = self.conv_3(x_1)
+
+#         return self.act(x + x_1 * 0.2)
+
+        
+# class SimpleResidualNet(nn.Module):
+#     def __init__(self, in_ch, out_ch):
+#         super().__init__()
+#         self.down_conv = nn.Sequential(
+#             nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
+#             nn.LeakyReLU(0.2, inplace=True))
+
+#         self.conv_1 = DoubleConvResidual(out_ch, out_ch)
+#         self.act = nn.LeakyReLU(0.2, inplace=True)
+
+
+#     def forward(self, x):
+#         x = self.down_conv(x)
+#         x_1 = self.conv_1(x)
+
+#         return self.act(x + x_1 * 0.2)
+
+class UpsampleLayer(nn.Module):
+    def __init__(self, in_ch, out_ch, out_size=None, scale_factor=2, residual_layers=True):
+        super().__init__()
+        #if residual_layers:
         if out_size is None:
             self.up = nn.Sequential(
                 nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                DoubleConv(in_ch, out_ch, in_ch // 2))
+                DoubleConv(in_ch, out_ch),
+                )
         else:
             self.up = nn.Sequential(
                 nn.Upsample(out_size, mode='bilinear', align_corners=True),
-                DoubleConv(in_ch, out_ch, in_ch // 2))
-        # self.conv = nn.Sequential(
-        #     nn.Conv2d(in_ch, out_ch, 3, padding=1, padding_mode="reflect"),
-        #     #nn.LayerNorm(up_layer_norm_dict[out_ch], elementwise_affine=False),
-        #     nn.BatchNorm2d(out_ch),
-        #     nn.LeakyReLU(0.2, inplace=True),
-        # )
+                DoubleConv(in_ch, out_ch),
+                )
+
+        # else:
+        #     self.up = nn.Sequential(
+        #         nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+        #         nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
+        #         nn.LeakyReLU(0.2, inplace=True))
+
+
         self.dropout = nn.Dropout2d(dropout)
 
 
     
     def forward(self, x):
-        # print("x.shape", x.shape)
         x = self.up(x)
-        #print("x.shape", x.shape)
-
-        
-        # x = self.conv(x)
-        x = self.dropout(x)
+        #x = self.dropout(x)
 
 
         return x
         
 
+
 class SignalDecoder(nn.Module):
     def __init__(self):
         super().__init__()
+
         self.up_layers = nn.Sequential(
-            UpsampleLayer(EMB_SIZE, EMB_SIZE//2),
-            UpsampleLayer(EMB_SIZE//2, EMB_SIZE//4), 
-            UpsampleLayer(EMB_SIZE//4, EMB_SIZE//8),
-            UpsampleLayer(EMB_SIZE//8, EMB_SIZE//16),
+            nn.Conv2d(EMB_SIZE//16, EMB_SIZE//16, kernel_size=1),
+            nn.LeakyReLU(0.2, inplace=True),
             UpsampleLayer(EMB_SIZE//16, EMB_SIZE//32),
+            UpsampleLayer(EMB_SIZE//32, EMB_SIZE//32),
             UpsampleLayer(EMB_SIZE//32, EMB_SIZE//32, out_size=IMG_OUT_SIZE))
 
-        # self.conv_out = nn.Sequential(
-        #     nn.Conv2d(EMB_SIZE//64, EMB_SIZE//64, 3, padding=1, padding_mode="reflect"),
-        #     nn.LeakyReLU(0.2, inplace=True),
-        #     nn.Conv2d(EMB_SIZE//64, 1, kernel_size=1))
         self.unet = UNet(EMB_SIZE//32, 1)
-        #self.conv_out = nn.Conv2d(EMB_SIZE//64, EMB_SIZE//64, 3, padding=1, padding_mode="reflect", bias=False)
-
         
         
     def forward(self, x, aug=None):
         batch_size = x.shape[0]
+        
 
         # Make the time dimension the channels
-        x = x.permute((0, 2, 1))
+        # x = x.permute((0, 2, 1))
 
         # Split the signals into the width and height dimension
         img_dim = int(x.shape[2] ** 0.5)
@@ -228,13 +284,12 @@ class SignalDecoder(nn.Module):
             x = aug(x)
 
         x = x.view(batch_size, x.shape[1], img_dim, img_dim)
-     
-        # Upsample it to be 16 x 300 x 365
+        # Upsample it to be batch_size x 16 x 300 x 365
         x = self.up_layers(x)
 
-        # Run through reconstruction Att UNet Model to produce 1 x 300 x 365 
+        # # Run through reconstruction UNet Model to produce batch_size x x 300 x 365        
         x = self.unet(x)
-
+        
         return x
         
 
@@ -251,7 +306,9 @@ class DensityModel(nn.Module):
     def forward(self, x, aug=None):
         x = self.sig_reduce(x)
         x = self.sig_att(x)
+
         x = self.sig_dec(x, aug)
+
         x = self.act_out(x)
 
         return x.view(x.shape[0], x.shape[2], x.shape[3])

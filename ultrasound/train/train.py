@@ -47,7 +47,7 @@ class Trainer:
 
 
         self.model = DensityModel().to(device)
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=lr)
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
         self.loss_fn = nn.L1Loss()
 
         if use_adversarial_loss:
@@ -96,7 +96,8 @@ class Trainer:
         self.optimizer.load_state_dict(model_dict["optimizer"])
 
         self.optimizer.param_groups[0]["lr"] = lr
-        # self.optimizer.param_groups[0]["weight_decay"] = 0.0
+        self.optimizer.param_groups[0]["weight_decay"] = weight_decay
+
         if use_adversarial_loss and "disc" in model_dict:
             self.disc.load_state_dict(model_dict["disc"])
             self.disc_optimizer.load_state_dict(model_dict["disc_optimizer"])
@@ -149,7 +150,7 @@ class Trainer:
 
     
     def train_step(self, SOS_pred, SOS_true, cur_step):
-        recon_loss = self.loss_fn(SOS_pred, SOS_true * self.binary_mask)
+        recon_loss = self.loss_fn(SOS_pred, SOS_true)
         disc_loss = torch.zeros(1)
         adv_loss = torch.zeros(1)
         if use_adversarial_loss:
@@ -174,7 +175,6 @@ class Trainer:
             loss.backward()
             self.optimizer.step()
             if self.avg_adv_loss == 0.0:
-
                 self.avg_adv_loss = adv_loss.detach().cpu().item()
             else:
                 self.avg_adv_loss = self.avg_adv_loss * 0.9 + adv_loss.detach().cpu().item() * 0.1
@@ -206,17 +206,64 @@ class Trainer:
             loss.backward()
             self.optimizer.step()
         print("recon_loss", recon_loss.item())
-        
 
-        
         
         return recon_loss, adv_loss, disc_loss
 
+    
+    def rand_train(self, historical_batches):
+        aug_FSA = lambda x: torch.flip(x, dims=[1, 2])
+
+        # Train on a historical batch
+        SOS_temp = torch.zeros_like(historical_batches[0][0])
+        FSA_temp = torch.zeros_like(historical_batches[0][1])
         
 
+        # Randomly select each element from history
+        batch_idxs = []
+        for i in range(len(historical_batches)):
+            for j in range(batch_size):
+                batch_idxs.append((i, j))
+
+        rand_idxs = random.sample(batch_idxs, k=batch_size)
+
+        for i in range(batch_size):
+            SOS_true, FSA = historical_batches[rand_idxs[i][0]]
+            
+            SOS_temp[i] = SOS_true[rand_idxs[i][1]]
+            FSA_temp[i] = FSA[rand_idxs[i][1]]
+
+        SOS_true = SOS_temp.to(device)
+        FSA = FSA_temp.to(device)
+
+        aug = sample_aug()
+
+        if aug:
+            SOS_true = aug(SOS_true)
+            SOS_pred = self.model(aug_FSA(FSA))
+        else:
+            SOS_pred = self.model(FSA)
+
+
+        #SOS_true = torch.cat((aug(SOS_true[batch_size//2:]), SOS_true[:batch_size//2])).to(device)
+        
+
+        
+        # aug = sample_aug()
+
+        # if aug:
+        #     SOS_true = aug(SOS_true)
+        
+        # Update the model
+        self.train_step(SOS_pred, SOS_true, 0)    
+
     def train(self):
-        cur_step = 0
+        historical_batches = []
+        aug = lambda x: torch.flip(x, dims=[2])
+        aug_FSA = lambda x: torch.flip(x, dims=[1, 2])
+
         for i in range(epochs):
+            cur_step = 0
             self.adjust_lr()
             train_loss = 0
             adv_loss_sum = 0
@@ -226,32 +273,36 @@ class Trainer:
 
             for batch in self.train_loader:
                 SOS_true, FSA = batch 
+
+
+                if use_history:
+                    if (random.random() <= 0.25 or len(historical_batches) < batch_buffer_size):
+                        historical_batches.append([SOS_true.clone(), FSA.clone()])
+                        if len(historical_batches) > batch_buffer_size:
+                            historical_batches = historical_batches[1:]
+                    elif len(historical_batches) == batch_buffer_size:
+                        rand_batch_idx = random.randint(0, batch_buffer_size - 1)
+                        rand_ex_idx = random.randint(0, batch_size - 1)
+                        historical_batches[rand_batch_idx][0][rand_ex_idx] = SOS_true[0].clone()
+                        historical_batches[rand_batch_idx][1][rand_ex_idx] = FSA[0].clone()
                 SOS_true = SOS_true.to(device)
                 FSA = FSA.to(device)
-                aug = sample_aug()
+                if random.random() <= 0.5:
+                    SOS_true = aug(SOS_true)
+                    FSA = aug_FSA(FSA)
                 
-                if aug:    
-                    SOS_true = aug(SOS_true * self.binary_mask)
-                    bm = aug(self.binary_mask.unsqueeze(0))[0]
-
-                    # Get model prediction
-                    SOS_pred = self.model(FSA, aug=aug) * bm
-
-                else:
-                    SOS_pred = self.model(FSA, aug=aug) * self.binary_mask
-
-                
-
+                SOS_pred = self.model(FSA)
 
                 # Update the model
                 loss, adv_loss, disc_loss = self.train_step(SOS_pred, SOS_true, cur_step)
 
                 if cur_step % 32 == 0:
                     print("\nsig_at.enc.layers[0].linear2", self.model.sig_att.enc.layers[0].linear2.weight.grad.min(), self.model.sig_att.enc.layers[0].linear2.weight.grad.max(), self.model.sig_att.enc.layers[0].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[0].linear2.weight.grad.std())
-                    print("sig_at.enc.layers[1].linear2", self.model.sig_att.enc.layers[1].linear2.weight.grad.min(), self.model.sig_att.enc.layers[1].linear2.weight.grad.max(), self.model.sig_att.enc.layers[1].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[1].linear2.weight.grad.std())                
+                    #print("sig_at.enc.layers[1].linear2", self.model.sig_att.enc.layers[1].linear2.weight.grad.min(), self.model.sig_att.enc.layers[1].linear2.weight.grad.max(), self.model.sig_att.enc.layers[1].linear2.weight.grad.mean(), self.model.sig_att.enc.layers[1].linear2.weight.grad.std())                
                     print("sig_reduce.time_convs[0]", self.model.sig_reduce.time_convs[0].weight.grad.min(), self.model.sig_reduce.time_convs[0].weight.grad.max())
                     #print("sig_reduce.fn_out", self.model.sig_reduce.fn_out.weight.grad.min(), self.model.sig_reduce.fn_out.weight.grad.max())
                     print("sig_dec.conv_out", self.model.sig_dec.unet.outc.conv.weight.grad.min(), self.model.sig_dec.unet.outc.conv.weight.grad.max())
+                    #print("sig_dec.conv_out", self.model.sig_dec.conv_out[-1].weight.grad.min(), self.model.sig_dec.conv_out[-1].weight.grad.max())
                     #print("sig_dec.conv_out", self.model.sig_dec.att_unet.Conv_1x1.weight.grad.min(), self.model.sig_dec.att_unet.Conv_1x1.weight.grad.max())
                     print("SOS_pred.min()", SOS_pred.min(), SOS_pred.max())
                 # if train_exs > 128:
@@ -262,23 +313,26 @@ class Trainer:
                 train_exs += FSA.shape[0]
                 cur_step += 1
 
-            del SOS_true
-            del SOS_pred
-            del FSA
-            del batch
+                del SOS_true
+                del SOS_pred
+                del FSA
+                del batch
+        
+                
+                if random.random() <= history_sample_prob and len(historical_batches) >= batch_buffer_size:
+                    self.rand_train(historical_batches)
+                
+                # if train_exs > 512:
+                #     break
+
+        
+            
+
+
             # print(gc.collect())
             print(torch.cuda.empty_cache())
 
 
-            # print("SOS_pred.min()", SOS_pred.min(), SOS_pred.max())
-            # print("SOS_true.min()", SOS_true.min(), SOS_true.max())
-            # if (i + 1) % 2 == 0:
-            #     fig, axs = plt.subplots(2)
-
-            #     axs[0].imshow(SOS_true[0].detach().cpu())
-                
-            #     axs[1].imshow(SOS_pred[0].detach().cpu())
-            #     plt.show()
             self.optimizer.zero_grad()
             print("TRAIN TIME", time.time() - start_time)
             
@@ -305,20 +359,6 @@ class Trainer:
             self.save()
             print("Saved model.")
 
-# torch.multiprocessing.set_start_method("spawn")
 
 trainer = Trainer()
 trainer.train()
-# print("READING DATA")
-
-
-# x = torch.randn(4, 64, 64, SIGNAL_LENGTH).cuda()
-# # x = torch.tensor(x).cuda()
-# m = 
-# x = m(x)
-
-
-# print("train_data", train_data.min(), train_data.max(), train_data.mean(), train_data.mean())
-
-
-# print("DATA SIZE: ", x.shape)
