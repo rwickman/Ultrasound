@@ -210,53 +210,6 @@ class Trainer:
         
         return recon_loss, adv_loss, disc_loss
 
-    
-    def rand_train(self, historical_batches):
-        aug_FSA = lambda x: torch.flip(x, dims=[1, 2])
-
-        # Train on a historical batch
-        SOS_temp = torch.zeros_like(historical_batches[0][0])
-        FSA_temp = torch.zeros_like(historical_batches[0][1])
-        
-
-        # Randomly select each element from history
-        batch_idxs = []
-        for i in range(len(historical_batches)):
-            for j in range(batch_size):
-                batch_idxs.append((i, j))
-
-        rand_idxs = random.sample(batch_idxs, k=batch_size)
-
-        for i in range(batch_size):
-            SOS_true, FSA = historical_batches[rand_idxs[i][0]]
-            
-            SOS_temp[i] = SOS_true[rand_idxs[i][1]]
-            FSA_temp[i] = FSA[rand_idxs[i][1]]
-
-        SOS_true = SOS_temp.to(device)
-        FSA = FSA_temp.to(device)
-
-        aug = sample_aug()
-
-        if aug:
-            SOS_true = aug(SOS_true)
-            SOS_pred = self.model(aug_FSA(FSA))
-        else:
-            SOS_pred = self.model(FSA)
-
-
-        #SOS_true = torch.cat((aug(SOS_true[batch_size//2:]), SOS_true[:batch_size//2])).to(device)
-        
-
-        
-        # aug = sample_aug()
-
-        # if aug:
-        #     SOS_true = aug(SOS_true)
-        
-        # Update the model
-        self.train_step(SOS_pred, SOS_true, 0)    
-
     def train(self):
         historical_batches = []
         aug = lambda x: torch.flip(x, dims=[2])
@@ -273,20 +226,9 @@ class Trainer:
 
             for batch in self.train_loader:
                 SOS_true, FSA = batch 
-
-
-                if use_history:
-                    if (random.random() <= 0.25 or len(historical_batches) < batch_buffer_size):
-                        historical_batches.append([SOS_true.clone(), FSA.clone()])
-                        if len(historical_batches) > batch_buffer_size:
-                            historical_batches = historical_batches[1:]
-                    elif len(historical_batches) == batch_buffer_size:
-                        rand_batch_idx = random.randint(0, batch_buffer_size - 1)
-                        rand_ex_idx = random.randint(0, batch_size - 1)
-                        historical_batches[rand_batch_idx][0][rand_ex_idx] = SOS_true[0].clone()
-                        historical_batches[rand_batch_idx][1][rand_ex_idx] = FSA[0].clone()
                 SOS_true = SOS_true.to(device)
                 FSA = FSA.to(device)
+
                 if random.random() <= 0.5:
                     SOS_true = aug(SOS_true)
                     FSA = aug_FSA(FSA)
@@ -305,8 +247,7 @@ class Trainer:
                     #print("sig_dec.conv_out", self.model.sig_dec.conv_out[-1].weight.grad.min(), self.model.sig_dec.conv_out[-1].weight.grad.max())
                     #print("sig_dec.conv_out", self.model.sig_dec.att_unet.Conv_1x1.weight.grad.min(), self.model.sig_dec.att_unet.Conv_1x1.weight.grad.max())
                     print("SOS_pred.min()", SOS_pred.min(), SOS_pred.max())
-                # if train_exs > 128:
-                #     break
+
                 train_loss += loss.item() * FSA.shape[0]
                 adv_loss_sum += adv_loss.item() * FSA.shape[0]
                 disc_loss_sum += disc_loss.item() * FSA.shape[0]
@@ -317,16 +258,6 @@ class Trainer:
                 del SOS_pred
                 del FSA
                 del batch
-        
-                
-                if random.random() <= history_sample_prob and len(historical_batches) >= batch_buffer_size:
-                    self.rand_train(historical_batches)
-                
-                # if train_exs > 512:
-                #     break
-
-        
-            
 
 
             # print(gc.collect())
@@ -351,11 +282,6 @@ class Trainer:
                 self.train_dict["adv_loss"].append(adv_loss_sum/train_exs)
                 self.train_dict["disc_loss"].append(disc_loss_sum/train_exs)
 
-
-            # if len(self.train_dict['train_loss']) % save_iter//2  == 0: 
-            #     self.save()
-            #     print("Saved model.")
-            
             self.save()
             print("Saved model.")
 

@@ -127,11 +127,7 @@ weight_decay = 1e-3
 # Number of images to make prediction on at a time
 batch_size = 8
 
-# Number of previous batches to store. Since loading takes awhile, this enables retraining on previous loaded batches
-use_history = True
-history_sample_prob = 0.15
-batch_buffer_size = 8
-epochs = 4000
+epochs = 500
 
 # Number of workers loading data: approx.range of [1, 4]
 num_workers = 2
