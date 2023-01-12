@@ -14,7 +14,7 @@ from skimage.metrics import structural_similarity, peak_signal_noise_ratio
 train_dataset, val_dataset, test_dataset = create_datasets()
 
 val_loader = DataLoader(
-    train_dataset,
+    test_dataset,
     2,
     num_workers=num_workers,
     prefetch_factor=prefetch_factor,
@@ -45,7 +45,7 @@ for batch in val_loader:
     # aug = sample_aug()
     # if aug:
     
-    SOS_true[:, binary_mask ==0] = binary_mask_val
+    # SOS_true[:, binary_mask ==0] = binary_mask_val
     SOS_true[0] = aug(SOS_true)[0]
     SOS_pred = torch.zeros_like(SOS_true)
     SOS_pred[0] = model(aug_FSA(FSA)[0].unsqueeze(0)) * binary_mask_aug

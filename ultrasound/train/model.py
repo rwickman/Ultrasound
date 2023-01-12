@@ -22,20 +22,19 @@ class SignalReduce(nn.Module):
 
         # Convolution for reducing all received for a single transmit into a single vector
         self.time_convs = nn.Sequential(*time_convs)
-
-     
         
-        self.dropout = nn.Dropout(dropout)
         self.fn_out = nn.Sequential(
             nn.Linear(SIG_OUT_SIZE, EMB_SIZE))
 
     def forward(self, x):
         batch_size = x.shape[0]
 
+        # Reshape to make all transmit as part of batches
         x = x.view(x.shape[0] * x.shape[1], x.shape[2], x.shape[-1])
-        x = self.time_convs(x)
 
- 
+        
+        # Run through time convolutions to "collapse" the receive dimension
+        x = self.time_convs(x)
 
         # Reshape into batches
         x = x.view(batch_size, NUM_TRANSMIT, x.shape[-1])    
@@ -138,6 +137,7 @@ class DensityModel(nn.Module):
         x = self.sig_dec(x, aug)
 
         x = self.act_out(x)
+        print("x.shape", x.shape)
 
         return x.view(x.shape[0], x.shape[2], x.shape[3])
         

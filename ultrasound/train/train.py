@@ -45,7 +45,6 @@ class Trainer:
             "val_ssim": []
         }
 
-
         self.model = DensityModel().to(device)
         self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
         self.loss_fn = nn.L1Loss()

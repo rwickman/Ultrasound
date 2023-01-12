@@ -3,17 +3,17 @@ import torch
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 SOS_RANGE = [1478, 2425]
-SIGNAL_LENGTH = 18650
+SIGNAL_LENGTH = 1244
 
 
 # KERNEL_SIZE = 3
 # STRIDE = 2
 
-kernel_sizes = [8, 4, 4, 4, 3]
-stride = [4, 2, 2, 1, 1]
-padding =[3, 2, 1, 1, 1]
-time_channels = [64, 64, 64, 64, 64, 1]
-time_out_sizes = [9325, 4663, 2332, 1166, 1166]
+kernel_sizes = [3, 3, 3, 3, 3]
+stride = [1, 1, 1, 1, 1]
+padding =[1, 1, 1, 1, 1]
+time_channels = [128, 128, 128, 128, 128, 1]
+time_out_sizes = [1244, 1244, 1244, 1244, 1244]
 
 # kernel_sizes = [8, 4, 4, 4]
 # stride = [4, 2, 2, 1]
@@ -55,9 +55,9 @@ up_layer_norm_dict = {
 
 """Data settings."""
 # Location of npy slices
-data_inp_dir = "/media/data/datasets/Ultrasound/AbSlices_npy/"
+data_inp_dir = "/media/data/datasets/Ultrasound/new/Output_AbSlices/"
 # Location of SOS mat 
-SOS_MAP_mat = "/media/data/datasets/Ultrasound/experiment_01/SOSMapAbOnly.mat"
+SOS_MAP_mat = "/media/data/datasets/Ultrasound/new/GT_SOS_AbSlices.mat"
 
 # Location of synthetic SOS mats
 aug_SOS_mats = [
@@ -102,16 +102,13 @@ FSA_RANGE = [-60, 61]
 SOS_RANGE = [1478, 2425]
 
 """Training hyperparameters."""
-# Where the model should be trained
-#save_dir="model_newarch_5/"
-#save_dir="model_newarch_10_adam_no_aug"
-save_dir="model_newarch_14_only_synth"
+save_dir="models"
 
 # Use the synthetic data set for training
-use_synth_data = True
+use_synth_data = False
 
 # Use only the synthetic data for training and not the original dataset
-use_only_synth_data = True
+use_only_synth_data = False
 
 # Loading the model or not
 load = True
@@ -120,7 +117,7 @@ load = True
 save_iter = 10
 
 # Learning rates other potential values [1e-5, 2e-5, ..., 1e-4, 2e-4]
-lr = 1e-5
+lr = 2e-4
 
 weight_decay = 1e-3
 
@@ -152,11 +149,7 @@ disc_lr = 1e-5
 disc_lam = 0.005
 
 """Transformer encoder hyperparameters."""
-#SIG_OUT_SIZE =  581#SIGNAL_LENGTH // KERNEL_SIZE + 1 if PADDING > 0 else 0
-# SIG_OUT_SIZE = 1164
-# EMB_SIZE = 1024
-
-SIG_OUT_SIZE = 1165
+SIG_OUT_SIZE = 1244
 EMB_SIZE = 1024
 NUM_HEADS =  8
 DFF = 1024
@@ -165,16 +158,5 @@ NUM_ENC_LAYERS = 1
 CHANNELS = 64
 WIDTH = 32
 
-# NUM_HEADS =  8
-# DFF = 1024
-# NUM_ENC_LAYERS = 3
-
-
 """Decoder hyperparameters."""
 IMG_OUT_SIZE = (300, 365)
-
-
-# SIG REDUCE PARAMETERS:  355105
-# SIG ATT PARAMETERS:  12649472
-# SIG DEC PARAMETERS:  2359737
-# TOTAL NUM PARAMETERS:  15364314

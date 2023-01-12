@@ -7,25 +7,7 @@ import time
 from config import *
 import random
 
-# def find_nearest(SOS_val):
-#     idx = np.abs(SOS_val - unique_SOS).argmin()
-#     print(SOS_val, unique_SOS[idx])
-#     return unique_SOS[idx]
-
-# def convert_to_class(SOS_map):
-#     SOS_map_converted = np.zeros_like(SOS_map)
-#     for i in range(SOS_map.shape[0]):
-#         for j in range(SOS_map.shape[1]):
-#             for k in range(SOS_map.shape[2]):
-#                 SOS_map_converted[i, j, k] = find_nearest(SOS_map[i,j,k])
-#     return SOS_map_converted
 def sample_aug():
-    # aug = random.choice([
-    #     lambda x: torch.flip(x, dims=[1,2]), # Rotate 180
-    #     lambda x: torch.flip(x, dims=[2]), # Flip on vertical axis
-    #     lambda x: torch.flip(torch.flip(x, dims=[1,2]), dims=[2]), # Rotate + flip
-    #     None
-    #     ])
     aug = random.choice([
             lambda x: torch.flip(x, dims=[1]), # Flip on vertical axis
             None
@@ -34,7 +16,6 @@ def sample_aug():
     return aug
 
 def load_aug_data():
-    binary_mask = io.loadmat("/media/data/datasets/Ultrasound/binaryMask.mat")["binaryMask"] 
     # Load the SOS maps
     SOS_maps = []
     # density_maps = []
@@ -44,21 +25,9 @@ def load_aug_data():
     SOS_maps = np.concatenate(SOS_maps, axis=-1)
 
     SOS_maps = SOS_maps.transpose((2, 0, 1))
-    #print(binary_mask)
     print("AUG CORNER:", SOS_maps[0, -1, -1])
 
-    # SOS_maps[:, binary_mask == 0] = 1540
-    # print(SOS_maps[0, 0, 0])
-    # print(SOS_maps[0])
-    # img_density[:, binary_mask == 0] = 993
-    #print(SOS_maps.shape)
-    #print("SOS MIN AND MAX AUG", SOS_maps.min(), SOS_maps.max())
-
-    #print()
-    #SOS_maps = np.log(SOS_maps)
     SOS_maps = (SOS_maps - SOS_maps.min()) / (SOS_maps.max() - SOS_maps.min())
-
-
     
     # Sort the FSA files
     FSA_mats_inp = []
@@ -80,15 +49,7 @@ def load_data(do_split=True):
     SOS_map = SOS_map.transpose((2,0,1))
 
     # Normalize
-    # print("SOS MIN AND MAX", SOS_map.min(), SOS_map.max())
-    # print("CORNER:", SOS_map[0, -1, -1])
-    #SOS_map = np.log(SOS_map)
-
     SOS_map = (SOS_map - SOS_map.min()) / (SOS_map.max() - SOS_map.min())
-    # print(np.unique(SOS_map))
-    # print("SOS_map STATS", SOS_map.min(), SOS_map.min(), SOS_map.mean(), SOS_map.std())
-
-
 
     SOS_val = SOS_map[:test_size]
     SOS_test = SOS_map[test_size:]
@@ -97,14 +58,14 @@ def load_data(do_split=True):
     FSA_mats = [
         os.path.join(data_inp_dir, FSA_mat) 
         for FSA_mat in os.listdir(data_inp_dir) 
-        if ".npy" in FSA_mat]    
+        if ".mat" in FSA_mat]    
     
     # Sort the files
     FSA_mats = sorted(FSA_mats, 
-        key=lambda FSA_mat: int(FSA_mat.split("/")[-1].split("FSA_Layer")[-1].split(".npy")[0]))
+        key=lambda FSA_mat: int(FSA_mat.split("FSA_Layer")[-1].split("_")[0]))
     
-    # FSA_mats_train = FSA_mats[:-test_size*2]
-    
+    print("FSA_mats", FSA_mats)
+
     # Split the FSA into validation and test 
     FSA_mats_val = FSA_mats[:test_size]
     FSA_mats_test = FSA_mats[test_size:]
@@ -113,7 +74,6 @@ def load_data(do_split=True):
         return (SOS_val, SOS_test), (FSA_mats_val, FSA_mats_test)
     else:
         return SOS_map, FSA_mats
-
 
 def create_datasets(only_test=False):
     SOS_maps, FSA_mats = load_data()
@@ -157,8 +117,11 @@ class UltrasoundDataset(Dataset):
     def __getitem__(self, idx):
         SOS_map = self.SOS_maps[idx]
         if ".mat" in self.FSA_mats[idx]:
-            FSA = io.loadmat(self.FSA_mats[idx])["FSA"]
-            FSA = torch.tensor(FSA,  dtype=torch.float32)
+            FSA = io.loadmat(self.FSA_mats[idx])["FSA_decimated"]
+            FSA = torch.tensor(FSA)
+            # Map the complex numbers another channel
+            FSA = torch.view_as_real(FSA.transpose(1, 2)).reshape(64, 1244, 128).transpose(1,2)
+
         else:
             FSA = np.load(self.FSA_mats[idx])
             FSA = torch.tensor(FSA,  dtype=torch.float32)
@@ -166,10 +129,13 @@ class UltrasoundDataset(Dataset):
         #FSA = (FSA - FSA_RANGE[0]) / (FSA_RANGE[1] - FSA_RANGE[0])
         FSA = FSA / FSA_scale_fac
         if FSA.shape[-1] < SIGNAL_LENGTH:
-            FSA_pad = torch.zeros(NUM_TRANSMIT, NUM_TRANSMIT, SIGNAL_LENGTH, dtype=torch.float32)
+            FSA_pad = torch.zeros(NUM_TRANSMIT, 2 * NUM_TRANSMIT, SIGNAL_LENGTH, dtype=torch.float32)
             FSA_pad[:, :, :FSA.shape[-1]] = FSA
             FSA = FSA_pad
-
+        
+        
+        
+        
         return SOS_map, FSA 
 
 
