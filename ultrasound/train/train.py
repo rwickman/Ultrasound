@@ -67,7 +67,7 @@ class Trainer:
         # print("SIG ATT PARAMETERS: ", sum(p.numel() for p in self.model.sig_att.parameters() if p.requires_grad))
         print("SIG DEC PARAMETERS: ", sum(p.numel() for p in self.model.sig_dec.parameters() if p.requires_grad))
         print("TOTAL NUM PARAMETERS: ", sum(p.numel() for p in self.model.parameters() if p.requires_grad))
-        self.binary_mask = torch.tensor(io.loadmat("/media/data/datasets/Ultrasound/binaryMask.mat")["binaryMask"]).to(device)
+        #self.binary_mask = torch.tensor(io.loadmat("/media/data/datasets/Ultrasound/binaryMask.mat")["binaryMask"]).to(device)
 
     def save(self):
         model_dict = {
@@ -116,9 +116,9 @@ class Trainer:
         
         for batch in self.val_loader:
             SOS_true, FSA = batch
-            SOS_true = SOS_true.to(device) * self.binary_mask
+            SOS_true = SOS_true.to(device)
             FSA = FSA.to(device)
-            SOS_pred = self.model(FSA) * self.binary_mask
+            SOS_pred = self.model(FSA)
             val_loss += self.loss_fn(SOS_pred, SOS_true).item() * FSA.shape[0]
             for i in range(len(SOS_true)):
                 val_ssim += structural_similarity(SOS_pred[i].detach().cpu().numpy(), SOS_true[i].detach().cpu().numpy())

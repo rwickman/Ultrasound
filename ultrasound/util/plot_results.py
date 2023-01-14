@@ -2,10 +2,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import json
 import seaborn as sns
-
+from ultrasound.train.config import *
 sns.set(style="darkgrid", font_scale=1.5)
-
-model_dir = "model_newarch_6/train_dict.json"
+import os
+#model_dir = "model_newarch_8/train_dict.json"
+#model_dir = "model_newarch_no_aug_rot/train_dict.json"
+#model_dir = "model_newarch_10_adam_temp/train_dict.json"
+model_dir = os.path.join(save_dir, "train_dict.json") 
 
 with open(model_dir) as f:
     train_dict = json.load(f)
@@ -21,8 +24,9 @@ axs[0].set(
     xlabel="Epoch",
     ylabel="MSE Loss"
 )
-print(train_dict["train_loss"])
+print(train_dict["train_loss"], len(train_dict["train_loss"]))
 print(train_dict["val_loss"])
+
 
 axs[1].plot( moving_average(train_dict["val_loss"]))
 axs[1].set(
@@ -31,16 +35,16 @@ axs[1].set(
     ylabel="MSE Loss"
 )
 
-# axs[2].plot( moving_average(train_dict["adv_loss"]))
-# axs[2].set(
+# axs[1][0].plot( moving_average(train_dict["adv_loss"]))
+# axs[1][0].set(
 #     title="Adversarial Loss ",
 #     xlabel="Epoch",
 #     ylabel="ADV Loss"
 # )
 
 
-# axs[3].plot( moving_average(train_dict["disc_loss"]))
-# axs[3].set(
+# axs[1][1].plot( moving_average(train_dict["disc_loss"]))
+# axs[1][1].set(
 #     title="Discriminator Loss ",
 #     xlabel="Epoch",
 #     ylabel="Disc Loss"

@@ -14,7 +14,7 @@ from skimage.metrics import structural_similarity, peak_signal_noise_ratio
 train_dataset, val_dataset, test_dataset = create_datasets()
 
 val_loader = DataLoader(
-    test_dataset,
+    val_dataset,
     2,
     num_workers=num_workers,
     prefetch_factor=prefetch_factor,
@@ -31,9 +31,9 @@ model_dict = torch.load(os.path.join(save_dir, "model.pt"))
 # Load the model parameters into the model
 model.load_state_dict(model_dict["model"])
 
-binary_mask = torch.tensor(io.loadmat("/media/data/datasets/Ultrasound/binaryMask.mat")["binaryMask"])
-binary_mask_aug = torch.flip(binary_mask, dims=[1])
-binary_mask_val = (1540 - 1478) / (2425 - 1478)
+#binary_mask = torch.tensor(io.loadmat("/media/data/datasets/Ultrasound/binaryMask.mat")["binaryMask"])
+#binary_mask_aug = torch.flip(binary_mask, dims=[1])
+#binary_mask_val = (1540 - 1478) / (2425 - 1478)
 # binary_mask[binary_mask == 0] = 10
 # Iterate over dataset
 cur_iter = 0
@@ -48,7 +48,7 @@ for batch in val_loader:
     # SOS_true[:, binary_mask ==0] = binary_mask_val
     SOS_true[0] = aug(SOS_true)[0]
     SOS_pred = torch.zeros_like(SOS_true)
-    SOS_pred[0] = model(aug_FSA(FSA)[0].unsqueeze(0)) * binary_mask_aug
+    SOS_pred[0] = model(aug_FSA(FSA)[0].unsqueeze(0))
     SOS_pred[1] = model(FSA[1].unsqueeze(0))
 
     # SOS_pred[:, binary_mask ==0] = binary_mask_val
