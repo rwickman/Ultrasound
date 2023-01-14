@@ -87,9 +87,6 @@ def create_datasets(only_test=False):
         else:
             SOS_maps_train = np.concatenate((SOS_maps[0][:10],  SOS_maps[1][-10:]))
             FSA_mats_train = FSA_mats[0][:10] + FSA_mats[1][-10:]
-        
-        
-
  
         train_dataset = UltrasoundDataset(SOS_maps_train, FSA_mats_train)
         val_dataset = UltrasoundDataset(SOS_maps[0][10:], FSA_mats[0][10:])
@@ -103,7 +100,6 @@ def create_datasets(only_test=False):
 def create_slices_dataset():
     SOS_maps, FSA_mats = load_data(do_split=False)
     return UltrasoundDataset(SOS_maps, FSA_mats)
-
 
 
 class UltrasoundDataset(Dataset):
@@ -129,6 +125,7 @@ class UltrasoundDataset(Dataset):
         else:
             FSA = np.load(self.FSA_mats[idx])
             FSA = torch.tensor(FSA,  dtype=torch.float32)
+            FSA = torch.view_as_real(FSA.transpose(1, 2)).reshape(64, 1244, 128).transpose(1,2)
 
         #FSA = (FSA - FSA_RANGE[0]) / (FSA_RANGE[1] - FSA_RANGE[0])
         FSA = FSA / FSA_scale_fac

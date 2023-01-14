@@ -41,7 +41,8 @@ for batch in val_loader:
     SOS_true[0] = aug(SOS_true)[0]
     SOS_pred = torch.zeros_like(SOS_true)
     SOS_pred[0] = model(aug_FSA(FSA)[0].unsqueeze(0))
-    SOS_pred[1] = model(FSA[1].unsqueeze(0))
+    if SOS_true.shape[0] > 1:
+        SOS_pred[1] = model(FSA[1].unsqueeze(0))
 
     # Plot the results    
     fig, axs = plt.subplots(2, 2)
