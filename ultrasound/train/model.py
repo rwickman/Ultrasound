@@ -137,7 +137,6 @@ class DensityModel(nn.Module):
         x = self.sig_dec(x, aug)
 
         x = self.act_out(x)
-        print("x.shape", x.shape)
 
         return x.view(x.shape[0], x.shape[2], x.shape[3])
         

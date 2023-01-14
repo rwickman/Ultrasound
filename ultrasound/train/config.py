@@ -5,27 +5,13 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 SOS_RANGE = [1478, 2425]
 SIGNAL_LENGTH = 1244
 
-
-# KERNEL_SIZE = 3
-# STRIDE = 2
-
 kernel_sizes = [3, 3, 3, 3, 3]
 stride = [1, 1, 1, 1, 1]
 padding =[1, 1, 1, 1, 1]
 time_channels = [128, 128, 128, 128, 128, 1]
 time_out_sizes = [1244, 1244, 1244, 1244, 1244]
 
-# kernel_sizes = [8, 4, 4, 4]
-# stride = [4, 2, 2, 1]
-# padding =[3, 2, 1, 1]
-# time_channels = [64, 64, 64, 64, 1]
-# time_out_sizes = [9325, 4663, 2332, 1166]
 
-
-# time_channels = [64, 128, 64, 32, 1]
-# time_out_sizes = [9324, 4661, 2330, 1164]
-# PADDING = (KERNEL_SIZE - SIGNAL_LENGTH % KERNEL_SIZE) // 2
-paddings = []
 up_layer_norm_dict = {
     256: (256, 16, 16),
     128: (128, 32, 32),
@@ -34,24 +20,6 @@ up_layer_norm_dict = {
     16: (16, 256, 256),
     8: (8, 300, 365),    
 }
-# up_layer_norm_dict = {
-#     256: (256, 18, 22),
-#     128: (128, 36, 44),
-#     64: (64, 72, 88),
-#     32: (32, 144, 176),
-#     16: (16, 288, 352),
-#     8: (8, 300, 365),
-# }
-
-
-# up_layer_norm_dict = {
-#     512: (512, 16, 16),
-#     256: (256, 32, 32),
-#     128: (128, 64, 64),
-#     64: (64, 128, 128),
-#     32: (32, 256, 256),
-#     16: (16, 300, 365)
-# }
 
 """Data settings."""
 # Location of npy slices
@@ -87,6 +55,9 @@ aug_FSA_inp_dirs = [
     "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch10_npy",
 ]
 
+binary_mask_file = "/media/data/datasets/Ultrasound/binaryMask.mat"
+binary_mask_val = (1540 - 1478) / (2425 - 1478)
+
 # Number of slices
 num_exs = 62
 test_split_pct = 0.5
@@ -113,6 +84,9 @@ use_only_synth_data = False
 # Loading the model or not
 load = True
 
+# Print out debuging info
+debug=False
+
 # How often to run over validation set and save a copy of the model
 save_iter = 10
 
@@ -124,6 +98,7 @@ weight_decay = 1e-3
 # Number of images to make prediction on at a time
 batch_size = 8
 
+# Number of epochs to train
 epochs = 500
 
 # Number of workers loading data: approx.range of [1, 4]
@@ -132,7 +107,6 @@ num_workers = 2
 prefetch_factor=4
 
 dropout = 0.05
-recon_lam = 1
 
 warm_up_epochs = 10
 warm_up_lr = 1e-7

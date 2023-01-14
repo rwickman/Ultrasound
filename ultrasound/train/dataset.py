@@ -16,19 +16,21 @@ def sample_aug():
     return aug
 
 def load_aug_data():
+    # Load the binary mask
+    binary_mask = io.loadmat(binary_mask_file)["binaryMask"]
+    
     # Load the SOS maps
     SOS_maps = []
-    # density_maps = []
     for aug_SOS_mat in aug_SOS_mats:
         SOS_maps.append(io.loadmat(aug_SOS_mat)["SOSMap"])
     
     SOS_maps = np.concatenate(SOS_maps, axis=-1)
 
     SOS_maps = SOS_maps.transpose((2, 0, 1))
-    print("AUG CORNER:", SOS_maps[0, -1, -1])
 
     SOS_maps = (SOS_maps - SOS_maps.min()) / (SOS_maps.max() - SOS_maps.min())
-    
+    SOS_map[:, binary_mask == 0] = binary_mask_val
+
     # Sort the FSA files
     FSA_mats_inp = []
     for aug_FSA_dir in aug_FSA_inp_dirs:
@@ -38,18 +40,19 @@ def load_aug_data():
             if ".npy" in FSA_mat]
 
         FSA_mats = sorted(FSA_mats, 
-            key=lambda FSA_mat: int(FSA_mat.split("/")[-1].split("FSA_Layer")[-1].split(".npy")[0]))
+            key=lambda FSA_mat: int(FSA_mat.split("FSA_Layer")[-1].split("_")[0]))
         FSA_mats_inp.extend(FSA_mats)
 
     return SOS_maps, FSA_mats_inp
 
 def load_data(do_split=True):
     SOS_map = io.loadmat(SOS_MAP_mat)["SOSMap"].astype(np.float32)
-
     SOS_map = SOS_map.transpose((2,0,1))
+
 
     # Normalize
     SOS_map = (SOS_map - SOS_map.min()) / (SOS_map.max() - SOS_map.min())
+
 
     SOS_val = SOS_map[:test_size]
     SOS_test = SOS_map[test_size:]
@@ -63,8 +66,6 @@ def load_data(do_split=True):
     # Sort the files
     FSA_mats = sorted(FSA_mats, 
         key=lambda FSA_mat: int(FSA_mat.split("FSA_Layer")[-1].split("_")[0]))
-    
-    print("FSA_mats", FSA_mats)
 
     # Split the FSA into validation and test 
     FSA_mats_val = FSA_mats[:test_size]
@@ -86,7 +87,10 @@ def create_datasets(only_test=False):
         else:
             SOS_maps_train = np.concatenate((SOS_maps[0][:10],  SOS_maps[1][-10:]))
             FSA_mats_train = FSA_mats[0][:10] + FSA_mats[1][-10:]
+        
+        
 
+ 
         train_dataset = UltrasoundDataset(SOS_maps_train, FSA_mats_train)
         val_dataset = UltrasoundDataset(SOS_maps[0][10:], FSA_mats[0][10:])
         test_dataset = UltrasoundDataset(SOS_maps[1][:-10], FSA_mats[1][:-10])
