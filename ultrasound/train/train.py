@@ -186,9 +186,7 @@ class Trainer:
                 del batch
 
 
-            # print(gc.collect())
             print(torch.cuda.empty_cache())
-
 
             self.optimizer.zero_grad()
             print("TRAIN TIME", time.time() - start_time)
