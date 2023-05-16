@@ -13,22 +13,17 @@ from metrics import Metrics
 from collections import deque
 import numpy as np
 
-from new_model import FullyConnected
-
 from model import DensityModel
 from config import *
 from dataset import create_datasets, sample_aug
 from discriminator import Discriminator, discriminator_loss
 from skimage.metrics import structural_similarity, peak_signal_noise_ratio
 import matplotlib.pyplot as plt
-from matplotlib.animation import FFMpegWriter
-from torchmetrics import StructuralSimilarityIndexMeasure as SSIM
 
 
 class Trainer:
     def __init__(self, run_name=None):
         self.train_dataset, self.val_dataset, self.test_dataset = create_datasets()
-
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size,
@@ -37,11 +32,7 @@ class Trainer:
             drop_last=False,
             shuffle=True,
             pin_memory=True,
-            # shuffle=False,
-            # multiprocessing_context="fork",
-            # multiprocessing_context="forkserver",
         )
-
         self.val_loader = DataLoader(
             self.val_dataset,
             6,
@@ -50,8 +41,6 @@ class Trainer:
             drop_last=False,
             shuffle=False,
             pin_memory=True
-            # shuffle=True,
-            # multiprocessing_context="fork",
         )
 
         # If data size is small enough, load it all into memory at once
@@ -64,18 +53,11 @@ class Trainer:
         self.train_dict = {}
 
         self.model = DensityModel().to(device)
-        # isz = self.train_dataset[0][1].numpy().shape
-        # osz = self.train_dataset[0][0].numpy().shape
-        # self.model = FullyConnected(isz, osz).to(device)
         self.optimizer = optim.AdamW(
             self.model.parameters(), lr=lr, weight_decay=weight_decay
         )
         # self.loss_fn = nn.L1Loss()
-        # self.loss_fn = nn.SmoothL1Loss()
-        # self.loss_fn = lambda a, b: 1 - SSIM().to(device)(a, b)
-        self.loss_fn = lambda a, b: 100 * (
-            1 - SSIM().to(device)(a, b)
-        ) + nn.SmoothL1Loss()(a, b)
+        self.loss_fn = nn.SmoothL1Loss()
 
         if not os.path.exists(models_dir):
             os.mkdir(models_dir)
@@ -93,32 +75,6 @@ class Trainer:
         self.binary_mask = torch.tensor(
             io.loadmat("%s/binaryMask.mat" % DATADIR)["binaryMask"]
         ).to(device)
-
-        self.fig = plt.figure(figsize=(10, 8))
-        # self.fig, self.ax = plt.subplots(2, 2, figsize=(12, 10))
-        tmp = self.val_loader[0][0][0]
-        plt.ion()
-        plt.subplot(221)
-        self.imtp = plt.imshow(tmp)
-        plt.title("Training pred")
-        plt.subplot(222)
-        self.imtt = plt.imshow(tmp)
-        plt.title("Training true")
-        plt.subplot(223)
-        self.imvp = plt.imshow(tmp)
-        plt.title("Validation pred")
-        plt.subplot(224)
-        self.imvt = plt.imshow(tmp)
-        plt.title("Validation true")
-        plt.pause(0.01)
-        self.figtitle = plt.suptitle("Epoch 0")
-
-        self.vobj = FFMpegWriter(fps=5)
-        self.vobj.setup(
-            self.fig,
-            "%s/training.mp4" % self.save_dir,
-            dpi=72,
-        )
 
     def save(self, current_epoch):
         model_dict = {
@@ -172,12 +128,6 @@ class Trainer:
             ctrue01 = ctrue.detach().cpu().numpy()
             self.metrics.eval(cpred01, ctrue01)
 
-        self.imvp.set_data(cpred01[0])
-        self.imvt.set_data(ctrue01[0])
-        self.fig.canvas.draw()
-        self.fig.canvas.flush_events()
-        self.vobj.grab_frame()  # Add to video writer
-
         del iqraw
         del ctrue
         del cpred
@@ -195,8 +145,7 @@ class Trainer:
             self.optimizer.param_groups[0]["lr"] = lr
 
     def train_step(self, cpred, ctrue, cur_step):
-        recon_loss = self.loss_fn(cpred.unsqueeze(1), ctrue.unsqueeze(1))
-        # recon_loss = self.loss_fn(cpred, ctrue)
+        recon_loss = self.loss_fn(cpred, ctrue)
         loss = recon_lam * recon_loss
 
         # Train the model
@@ -222,9 +171,7 @@ class Trainer:
                 print("Epoch %d" % i)
             cur_step = 0
             self.adjust_lr(i, lr)
-            self.figtitle.set_text("Epoch %d" % (i + 1))
 
-            j = 0
             for batch in tqdm(self.train_loader, disable=not verbose):
                 # Ordinary run
                 ctrue, iqraw = batch
@@ -259,16 +206,6 @@ class Trainer:
                 del cpred
                 del iqraw
                 del batch
-
-                self.imtp.set_data(cpred01[0])
-                self.imtt.set_data(ctrue01[0])
-                self.fig.canvas.draw()
-                self.fig.canvas.flush_events()
-
-                j = j + 1
-                if j % 10 == 0:
-                    self.vobj.grab_frame()  # Add to video writer
-                    # plt.savefig("scratch.png")
             # # print(gc.collect())
             # print(torch.cuda.empty_cache())
 
@@ -289,16 +226,14 @@ class Trainer:
 
             # Save results
             self.train_dict["lr"] = lr
-            # self.save(i)
-        self.vobj.finish()  # Close video writer
-        self.save(i)
+            self.save(i)
 
         return self.train_dict["val_loss"][-1]
 
 
 def main():
 
-    lr = 1e-3
+    lr = 2e-4
     trainer = Trainer()
     trainer.train(lr)
 

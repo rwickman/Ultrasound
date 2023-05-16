@@ -11,8 +11,9 @@ SIGNAL_LENGTH = 1244
 
 kernel_sizes = [3, 3, 3, 3, 3]
 stride = [1, 1, 1, 1, 1]
-padding =[1, 1, 1, 1, 1]
-time_channels = [128, 128, 128, 128, 128, 1]
+padding = [1, 1, 1, 1, 1]
+time_channels = [22, 22, 22, 22, 22, 1]
+# time_channels = [128, 128, 128, 128, 128, 1]
 time_out_sizes = [1244, 1244, 1244, 1244, 1244]
 
 # kernel_sizes = [8, 4, 4, 4]
@@ -32,7 +33,7 @@ up_layer_norm_dict = {
     64: (64, 64, 64),
     32: (32, 128, 128),
     16: (16, 256, 256),
-    8: (8, 300, 365),    
+    8: (8, 300, 365),
 }
 # up_layer_norm_dict = {
 #     256: (256, 18, 22),
@@ -54,38 +55,26 @@ up_layer_norm_dict = {
 # }
 
 """Data settings."""
+cmin = 1300  # None for auto selection
+cmax = 2500  # None for auto selection
 # Location of npy slices
-data_inp_dir = "/media/data/datasets/Ultrasound/new/Output_AbSlices/"
-# Location of SOS mat 
-SOS_MAP_mat = "/media/data/datasets/Ultrasound/new/GT_SOS_AbSlices.mat"
+DATADIR = "/home/dhyun/scratch/bathtub_data"
+# DATADIR = "../../../NN_FSA_15xDecimation"
+data_inp_dir = "%s/Output_AbSlices/" % DATADIR
+# data_inp_dir = "/media/data/datasets/Ultrasound/new/Output_AbSlices/"
+# Location of SOS mat
+SOS_MAP_mat = "%s/GroundTruth/GT_SOS_AbSlices.mat" % DATADIR
+# SOS_MAP_mat = "/media/data/datasets/Ultrasound/new/GT_SOS_AbSlices.mat"
 
 # Location of synthetic SOS mats
+naug = 10
 aug_SOS_mats = [
-    "/media/data/datasets/Ultrasound/aug_inp/aug_sos_0.mat",
-    "/media/data/datasets/Ultrasound/aug_inp/aug_sos_1.mat",
-    "/media/data/datasets/Ultrasound/aug_inp/aug_sos_2.mat",
-    "/media/data/datasets/Ultrasound/aug_inp/aug_sos_3.mat",
-    "/media/data/datasets/Ultrasound/aug_inp/aug_sos_4.mat",
-    "/media/data/datasets/Ultrasound/aug_inp/aug_sos_5.mat",
-    "/media/data/datasets/Ultrasound/aug_inp/aug_sos_6.mat",
-    "/media/data/datasets/Ultrasound/aug_inp/aug_sos_7.mat",
-    "/media/data/datasets/Ultrasound/aug_inp/aug_sos_8.mat",
-    "/media/data/datasets/Ultrasound/aug_inp/aug_sos_9.mat",
+    "%s/GroundTruth/GT_SOS_Aug_Batch%d_masked.mat" % (DATADIR, n)
+    for n in range(1, naug + 1)
 ]
 
-# Location of synthetic input .npy files
-aug_FSA_inp_dirs = [
-    "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch1_npy",
-    "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch2_npy",
-    "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch3_npy",
-    "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch4_npy",
-    "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch5_npy",
-    "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch6_npy",
-    "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch7_npy",
-    "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch8_npy",
-    "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch9_npy",
-    "/media/data/datasets/Ultrasound/aug_out/Output_Aug_Batch10_npy",
-]
+# Location of synthetic input .mat files
+aug_FSA_inp_dirs = ["%s/Output_Aug_Batch%d/" % (DATADIR, n) for n in range(1, naug + 1)]
 
 # Number of slices
 num_exs = 62
@@ -102,45 +91,46 @@ FSA_RANGE = [-60, 61]
 SOS_RANGE = [1478, 2425]
 
 """Training hyperparameters."""
-save_dir="models"
+models_dir = "models"
 
 # Use the synthetic data set for training
-use_synth_data = False
+# use_synth_data = False
+use_synth_data = True
 
 # Use only the synthetic data for training and not the original dataset
-use_only_synth_data = False
+# use_only_synth_data = False
+use_only_synth_data = True
 
 # Loading the model or not
-load = True
+load = False  # True
 
 # How often to run over validation set and save a copy of the model
 save_iter = 10
 
 # Learning rates other potential values [1e-5, 2e-5, ..., 1e-4, 2e-4]
-lr = 2e-4
+lr = 1e-2  # 2e-4
 
 weight_decay = 1e-3
 
 # Number of images to make prediction on at a time
 batch_size = 8
 
-epochs = 500
+epochs = 200
 
 # Number of workers loading data: approx.range of [1, 4]
-num_workers = 2
+num_workers = 4  # 4
 # Number of data points: approx. range of [1, 8]
-prefetch_factor=4
+prefetch_factor = 4
 
 dropout = 0.05
 recon_lam = 1
 
-warm_up_epochs = 10
+warm_up_epochs = 0
 warm_up_lr = 1e-7
 
 
 # use_classes = False
 # unique_SOS = [1478, 1501, 1534, 1540, 1547, 1572, 1613, 1665, 2425]
-
 
 
 """GAN hyperparameters."""
@@ -151,7 +141,7 @@ disc_lam = 0.005
 """Transformer encoder hyperparameters."""
 SIG_OUT_SIZE = 1244
 EMB_SIZE = 1024
-NUM_HEADS =  8
+NUM_HEADS = 8
 DFF = 1024
 NUM_ENC_LAYERS = 1
 
